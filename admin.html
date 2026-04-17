@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RIOH. | CONTROL PANEL</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --primary: #E31C25;
+            --text-dark: #111;
+            --bg-light: #F4F4F4;
+            --border-width: 3px;
+            --transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            --sidebar-w: 280px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-light);
+            color: var(--text-dark);
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* ── LOGIN OVERLAY ── */
+        #login-overlay {
+            position: fixed;
+            inset: 0;
+            background: #111;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        #login-overlay.hidden { display: none; }
+
+        .login-card {
+            background: white;
+            border: var(--border-width) solid white;
+            box-shadow: 12px 12px 0px var(--primary);
+            padding: 3rem 3rem 2.5rem;
+            width: 100%;
+            max-width: 400px;
+            margin: 1rem;
+        }
+
+        .login-logo {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 3rem;
+            color: var(--primary);
+            line-height: 1;
+        }
+
+        .login-subtitle {
+            font-size: 0.75rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: #888;
+            margin-bottom: 2.5rem;
+            margin-top: 4px;
+        }
+
+        .login-field {
+            margin-bottom: 1.2rem;
+        }
+
+        .login-field label {
+            display: block;
+            font-size: 0.7rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 6px;
+            color: #555;
+        }
+
+        .login-field input {
+            width: 100%;
+            padding: 14px 16px;
+            border: var(--border-width) solid var(--text-dark);
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+            background: white;
+            outline: none;
+            transition: box-shadow 0.2s;
+        }
+
+        .login-field input:focus {
+            box-shadow: 4px 4px 0px var(--primary);
+        }
+
+        .login-btn {
+            width: 100%;
+            background: var(--primary);
+            color: white;
+            border: var(--border-width) solid var(--text-dark);
+            padding: 16px;
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1rem;
+            text-transform: uppercase;
+            cursor: pointer;
+            box-shadow: 6px 6px 0px var(--text-dark);
+            margin-top: 0.5rem;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+
+        .login-btn:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 8px 8px 0px var(--text-dark);
+        }
+
+        .login-btn:active {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px var(--text-dark);
+        }
+
+        .login-error {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-top: 1rem;
+            min-height: 1.2em;
+            text-align: center;
+            text-transform: uppercase;
+        }
+
+        .login-footer {
+            margin-top: 2rem;
+            padding-top: 1.2rem;
+            border-top: 2px dashed #ddd;
+            font-size: 0.72rem;
+            color: #aaa;
+            text-align: center;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* ── MOBILE HEADER ── */
+        .mobile-header {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: var(--text-dark);
+            z-index: 500;
+            padding: 0 1rem;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: var(--border-width) solid var(--primary);
+        }
+
+        .mobile-logo {
+            font-family: 'Archivo Black', sans-serif;
+            color: var(--primary);
+            font-size: 1.4rem;
+        }
+
+        .hamburger-btn {
+            background: none;
+            border: 2px solid #555;
+            color: white;
+            padding: 6px 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+
+        /* ── SIDEBAR ── */
+        .sidebar {
+            width: var(--sidebar-w);
+            background: var(--text-dark);
+            color: white;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            border-right: var(--border-width) solid var(--text-dark);
+            position: fixed;
+            height: 100vh;
+            z-index: 400;
+            transition: transform 0.3s ease;
+        }
+
+        .admin-logo {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 2rem;
+            color: var(--primary);
+            margin-bottom: 3rem;
+        }
+
+        .nav-menu { list-style: none; flex: 1; }
+        .nav-item { margin-bottom: 1rem; }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            color: #AAA;
+            text-decoration: none;
+            font-weight: 700;
+            padding: 12px;
+            border: var(--border-width) solid transparent;
+            transition: var(--transition);
+            cursor: pointer;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            color: white;
+            background: rgba(255, 255, 255, 0.1);
+            border-left: var(--border-width) solid var(--primary);
+        }
+
+        .nav-link-disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 300;
+        }
+
+        /* ── MAIN CONTENT ── */
+        .main-content {
+            margin-left: var(--sidebar-w);
+            flex: 1;
+            padding: 3rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-family: 'Archivo Black', sans-serif;
+            text-transform: uppercase;
+            font-size: 2.5rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .stat-card {
+            background: white;
+            border: var(--border-width) solid var(--text-dark);
+            padding: 2rem;
+            box-shadow: 8px 8px 0px var(--text-dark);
+        }
+
+        .stat-card h3 {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .stat-card .value {
+            font-size: 1.8rem;
+            font-weight: 900;
+            font-family: 'Archivo Black', sans-serif;
+            line-height: 1.1;
+        }
+
+        .admin-section { display: none; }
+        .admin-section.active { display: block; }
+
+        @keyframes toastIn {
+            from { transform: translateX(100%) scale(0.5); opacity: 0; }
+            to { transform: translateX(0) scale(1); opacity: 1; }
+        }
+        @keyframes toastOut {
+            from { transform: translateX(0) scale(1); opacity: 1; }
+            to { transform: translateX(100%) scale(0.5); opacity: 0; }
+        }
+
+        /* ── TABLES ── */
+        .brutalist-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border: var(--border-width) solid var(--text-dark);
+            box-shadow: 10px 10px 0px var(--text-dark);
+        }
+
+        .brutalist-table th, .brutalist-table td {
+            border: var(--border-width) solid var(--text-dark);
+            padding: 1rem 1.5rem;
+            text-align: left;
+            font-weight: 700;
+        }
+
+        .brutalist-table th {
+            background: var(--text-dark);
+            color: white;
+            font-family: 'Archivo Black', sans-serif;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+
+        .table-scroll-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* ── FORMS ── */
+        .stock-control-panel {
+            background: white;
+            border: var(--border-width) solid var(--text-dark);
+            padding: 2rem;
+            margin-bottom: 3rem;
+            box-shadow: 8px 8px 0px var(--primary);
+        }
+
+        .stock-form {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr auto;
+            gap: 1.5rem;
+            align-items: end;
+        }
+
+        .input-group { display: flex; flex-direction: column; gap: 8px; }
+        .input-group label { font-weight: 900; font-size: 0.8rem; text-transform: uppercase; }
+
+        .input-group input, .input-group select {
+            padding: 12px;
+            border: var(--border-width) solid var(--text-dark);
+            font-weight: 700;
+            font-family: inherit;
+        }
+
+        .add-btn {
+            background: var(--primary);
+            color: white;
+            padding: 12px 25px;
+            border: var(--border-width) solid var(--text-dark);
+            font-family: 'Archivo Black', sans-serif;
+            cursor: pointer;
+            box-shadow: 4px 4px 0px var(--text-dark);
+        }
+
+        .add-btn:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0px var(--text-dark); }
+
+        /* ── STATUS BADGES ── */
+        .status-badge { padding: 5px 10px; font-size: 0.7rem; text-transform: uppercase; border: 2px solid var(--text-dark); }
+        .status-ok { background: #4CAF50; color: white; }
+        .status-low { background: #FFC107; color: var(--text-dark); }
+        .status-critical { background: var(--primary); color: white; }
+
+        /* ── FILTER BAR ── */
+        .filter-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-btn {
+            background: white;
+            border: 2px solid var(--text-dark);
+            padding: 8px 14px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.8rem;
+            transition: var(--transition);
+            white-space: nowrap;
+        }
+
+        .filter-btn:hover { background: #eee; }
+        .filter-btn.active {
+            background: var(--text-dark);
+            color: white;
+            box-shadow: 4px 4px 0px var(--primary);
+        }
+
+        .custom-range { display: none; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .custom-range.active { display: flex; }
+
+        /* ── TOGGLE SWITCH ── */
+        .switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top:0; left:0; right:0; bottom:0; background:#444; transition:.4s; border-radius:34px; }
+        .slider:before { position:absolute; content:""; height:18px; width:18px; left:4px; bottom:4px; background:white; transition:.4s; border-radius:50%; }
+        input:checked + .slider { background-color: var(--primary); }
+        input:checked + .slider:before { transform: translateX(24px); }
+
+        .sidebar-footer { margin-top: auto; border-top: 1px solid #333; padding-top: 1.5rem; }
+        .status-toggle-container { display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; margin-bottom:1rem; }
+
+        /* ── KANBAN ── */
+        .kanban-board {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.2rem;
+            align-items: flex-start;
+            overflow-x: auto;
+            padding-bottom: 1rem;
+        }
+
+        .kanban-col {
+            border: var(--border-width) solid var(--text-dark);
+            background: white;
+            box-shadow: 6px 6px 0px var(--text-dark);
+            min-width: 220px;
+        }
+
+        .kanban-col-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.8rem 1rem;
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .kanban-count { background: rgba(0,0,0,0.25); padding: 2px 10px; font-size: 1rem; border-radius: 2px; }
+
+        .kanban-cards {
+            padding: 0.8rem;
+            min-height: 150px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.7rem;
+        }
+
+        .kanban-card {
+            border: 2px solid var(--text-dark);
+            padding: 0.8rem;
+            background: #fafafa;
+            box-shadow: 3px 3px 0px var(--text-dark);
+        }
+
+        .kanban-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem; }
+
+        .kanban-items { margin: 5px 0; border-top: 1px dashed #ddd; padding-top: 5px; font-size: 0.78rem; }
+
+        .kanban-total { text-align:right; font-family:'Archivo Black', sans-serif; font-size:1rem; margin-top:3px; }
+
+        .kanban-advance-btn {
+            background: var(--text-dark);
+            color: white;
+            border: none;
+            padding: 5px 8px;
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 0.6rem;
+            cursor: pointer;
+            margin-top: 0.5rem;
+            width: 100%;
+            text-transform: uppercase;
+        }
+
+        .kanban-advance-btn:hover { background: var(--primary); }
+        .kanban-empty { color: #bbb; text-align: center; padding: 16px; font-size: 0.8rem; }
+
+        /* ── CARD ACTION ROW ── */
+        .card-actions {
+            display: flex;
+            gap: 4px;
+            margin-top: 6px;
+        }
+
+        .card-btn {
+            border: 2px solid var(--text-dark);
+            padding: 5px 8px;
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 0.6rem;
+            cursor: pointer;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+
+        .card-btn-back    { background: #f0f0f0; color: #555; flex: 0 0 auto; }
+        .card-btn-back:hover { background: #ddd; }
+        .card-btn-advance { background: var(--text-dark); color: white; flex: 1; justify-content: center; }
+        .card-btn-advance:hover { background: var(--primary); }
+        .card-btn-delete  { background: white; color: var(--primary); border-color: var(--primary); flex: 0 0 auto; }
+        .card-btn-delete:hover { background: #fff0f0; }
+
+        /* ── MOBILE KANBAN TABS ── */
+        .kanban-mobile-tabs {
+            display: none;
+            gap: 4px;
+            margin-bottom: 0.8rem;
+        }
+
+        .kmt-btn {
+            flex: 1;
+            padding: 8px 4px;
+            border: 2px solid #ccc;
+            background: white;
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            cursor: pointer;
+            text-align: center;
+            color: #888;
+        }
+
+        .kmt-btn.active { color: white; border-color: transparent; }
+
+        /* ── ORDERS HEADER ── */
+        .orders-header-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+        .refresh-btn {
+            background: white;
+            border: 2px solid var(--text-dark);
+            padding: 8px 14px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 3px 3px 0px var(--text-dark);
+            font-size: 0.8rem;
+        }
+
+        .refresh-btn:hover { background: #eee; }
+
+        .auto-refresh-badge { font-size: 0.7rem; color: #888; font-weight: 700; background: #eee; border: 1px solid #ccc; padding: 4px 8px; white-space: nowrap; }
+
+        /* ── CUSTOMER RANKING ── */
+        .ranking-table-wrap {
+            background: white;
+            border: var(--border-width) solid var(--text-dark);
+            box-shadow: 8px 8px 0px var(--text-dark);
+            margin-top: 2rem;
+        }
+
+        .ranking-table-wrap h3 {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1rem;
+            text-transform: uppercase;
+            background: var(--text-dark);
+            color: #FFD600;
+            padding: 1rem 1.5rem;
+        }
+
+        .qty-btn {
+            background: white;
+            border: 2px solid var(--text-dark);
+            padding: 8px 14px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* ── CUSTOMER PROFILE MODAL ── */
+        #customer-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.75);
+            z-index: 2000;
+            overflow-y: auto;
+            padding: 2rem 1rem;
+        }
+
+        .customer-modal-card {
+            max-width: 640px;
+            margin: 0 auto;
+            background: white;
+            border: var(--border-width) solid var(--text-dark);
+            box-shadow: 12px 12px 0px var(--primary);
+        }
+
+        .customer-modal-header {
+            background: var(--text-dark);
+            color: white;
+            padding: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .customer-modal-header h2 {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1.3rem;
+        }
+
+        .customer-modal-close {
+            background: var(--primary);
+            border: 2px solid white;
+            color: white;
+            width: 32px; height: 32px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 900;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .customer-modal-body { padding: 1.5rem; }
+
+        .profile-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .profile-stat {
+            border: 2px solid var(--text-dark);
+            padding: 0.8rem;
+            text-align: center;
+        }
+
+        .profile-stat .ps-label { font-size: 0.65rem; text-transform: uppercase; color: #888; font-weight: 700; }
+        .profile-stat .ps-value { font-family: 'Archivo Black', sans-serif; font-size: 1.3rem; margin-top: 3px; }
+
+        .profile-order {
+            border: 2px solid #eee;
+            padding: 0.8rem 1rem;
+            margin-bottom: 0.6rem;
+        }
+
+        .profile-order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.4rem;
+        }
+
+        /* ── PRINT STYLES ── */
+        @media print {
+            .sidebar, .mobile-header, .filter-bar, .orders-header-controls,
+            .refresh-btn, .qty-btn, #login-overlay { display: none !important; }
+            .main-content { margin-left: 0 !important; padding: 0 !important; }
+            .stat-card, .ranking-table-wrap { box-shadow: none !important; break-inside: avoid; }
+        }
+
+        /* ══════════════════════════════════
+           RESPONSIVE — MOBILE
+        ══════════════════════════════════ */
+        @media (max-width: 900px) {
+
+            /* Show mobile header */
+            .mobile-header { display: flex; }
+
+            /* Hide desktop logo in sidebar */
+            .admin-logo { display: none; }
+
+            /* Sidebar becomes full-screen drawer */
+            .sidebar {
+                transform: translateX(-100%);
+                width: 280px;
+                padding-top: 1.5rem;
+                z-index: 600;
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .sidebar-overlay.open { display: block; }
+
+            /* Main content reset */
+            .main-content {
+                margin-left: 0;
+                padding: 1rem;
+                padding-top: calc(60px + 1rem);
+            }
+
+            h1 { font-size: 1.6rem; }
+
+            /* Stats grid single column */
+            .stats-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 1rem;
+            }
+
+            /* Kanban: tab-based on mobile */
+            .kanban-mobile-tabs { display: flex; }
+            .kanban-board { grid-template-columns: 1fr; }
+            .kanban-col { display: none; }
+            .kanban-col.mob-active { display: block; }
+
+            /* Forms stack vertically */
+            .stock-form {
+                grid-template-columns: 1fr;
+            }
+
+            /* Filter bar scrollable */
+            .filter-bar {
+                overflow-x: auto;
+                flex-wrap: nowrap;
+                padding-bottom: 4px;
+            }
+
+            /* Dashboard bottom grid */
+            .dashboard-bottom-grid {
+                grid-template-columns: 1fr !important;
+            }
+
+            /* Table wraps */
+            .table-scroll-wrap {
+                margin: 0 -1rem;
+                padding: 0 1rem;
+            }
+
+            /* Header layout */
+            header {
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-bottom: 1.2rem;
+            }
+
+            .orders-header-controls { width: 100%; justify-content: flex-start; }
+
+            .login-card { padding: 2rem 1.5rem; }
+            .login-logo { font-size: 2.5rem; }
+        }
+
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+            .stat-card { padding: 1.2rem; }
+            .stat-card .value { font-size: 1.4rem; }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ── LOGIN OVERLAY ── -->
+    <div id="login-overlay">
+        <div class="login-card">
+            <div class="login-logo">RIOH.</div>
+            <div class="login-subtitle">Panel de Control</div>
+
+            <div class="login-field">
+                <label>Usuario</label>
+                <input type="text" id="login-user" placeholder="admin" autocomplete="username" onkeydown="if(event.key==='Enter') doLogin()">
+            </div>
+            <div class="login-field">
+                <label>Contraseña</label>
+                <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter') doLogin()">
+            </div>
+
+            <button class="login-btn" onclick="doLogin()">INGRESAR</button>
+
+            <div class="login-error" id="login-error"></div>
+
+            <div class="login-footer">Saavedra, Buenos Aires</div>
+        </div>
+    </div>
+
+    <!-- ── MOBILE HEADER ── -->
+    <div class="mobile-header">
+        <span class="mobile-logo">RIOH.</span>
+        <button class="hamburger-btn" onclick="toggleMobileMenu()">
+            <i data-lucide="menu" style="width:20px; height:20px;"></i>
+        </button>
+    </div>
+
+    <!-- Sidebar overlay (mobile) -->
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileMenu()"></div>
+
+    <!-- ── SIDEBAR ── -->
+    <aside class="sidebar" id="sidebar">
+        <div class="admin-logo">RIOH.ADMIN</div>
+        <ul class="nav-menu">
+            <li class="nav-item">
+                <a class="nav-link active" onclick="showSection(event, 'orders')">
+                    <i data-lucide="shopping-cart"></i> PEDIDOS
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" onclick="showSection(event, 'dashboard')">
+                    <i data-lucide="layout-dashboard"></i> DASHBOARD
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link nav-link-disabled">
+                    <i data-lucide="package"></i> GESTIÓN STOCK
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" onclick="showSection(event, 'marketing')">
+                    <i data-lucide="megaphone"></i> MARKETING Y OFERTAS
+                </a>
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="index.html" class="nav-link" target="_blank" style="border-color: var(--primary); margin-bottom:0.5rem;">
+                <i data-lucide="external-link"></i> VER WEB
+            </a>
+            <button id="demo-mode-btn" onclick="toggleDemoMode()" style="
+                width: 100%; padding: 12px 14px;
+                background: var(--primary); border: var(--border-width) solid white;
+                color: white; font-family: 'Archivo Black', sans-serif;
+                font-size: 0.8rem; cursor: pointer;
+                text-align: center; letter-spacing: 0.06em;
+                box-shadow: 4px 4px 0px rgba(255,255,255,0.3);
+                transition: all 0.2s;
+            ">⚡ MODO DEMO: OFF</button>
+            <a class="nav-link" style="color:#666; margin-top:0.5rem; cursor:pointer; font-size:0.8rem;" onclick="doLogout()">
+                <i data-lucide="log-out"></i> SALIR
+            </a>
+        </div>
+    </aside>
+
+    <!-- ── MAIN CONTENT ── -->
+    <main class="main-content" id="main-content" style="display:none;">
+
+        <!-- PEDIDOS — KANBAN -->
+        <section id="orders-section" class="admin-section active">
+            <header>
+                <h1>Pedidos</h1>
+                <div class="orders-header-controls">
+                    <span class="auto-refresh-badge">AUTO ⟳ 30s</span>
+<button class="refresh-btn" onclick="manualRefreshOrders()">
+                        <i data-lucide="refresh-cw" style="width:14px;"></i> REFRESCAR
+                    </button>
+                </div>
+            </header>
+
+            <div class="filter-bar">
+                <button class="filter-btn active" onclick="setOrdersFilter(event, 'hoy')">HOY</button>
+                <button class="filter-btn" onclick="setOrdersFilter(event, 'semana')">SEMANA</button>
+                <button class="filter-btn" onclick="setOrdersFilter(event, 'quincena')">QUINCENA</button>
+                <button class="filter-btn" onclick="setOrdersFilter(event, 'mes')">MES</button>
+                <button class="filter-btn" onclick="toggleOrdersCustomRange()">RANGO</button>
+                <div id="orders-custom-range" class="custom-range">
+                    <input type="date" id="orders-date-from">
+                    <span>—</span>
+                    <input type="date" id="orders-date-to">
+                    <button class="filter-btn" onclick="applyOrdersCustomFilter()">OK</button>
+                </div>
+            </div>
+
+            <!-- Mobile tab selector -->
+            <div class="kanban-mobile-tabs" id="kanban-tabs">
+                <button class="kmt-btn active" id="kmt-pendiente" style="background:#BF360C;" onclick="showKanbanTab('pendiente',this)">NUEVOS<br><span id="mtab-pendiente">0</span></button>
+                <button class="kmt-btn" id="kmt-aprobado" onclick="showKanbanTab('aprobado',this)" style="background:#eee; color:#333;">PAGO OK<br><span id="mtab-aprobado">0</span></button>
+                <button class="kmt-btn" id="kmt-preparacion" onclick="showKanbanTab('preparacion',this)" style="background:#eee; color:#333;">EN PREP.<br><span id="mtab-preparacion">0</span></button>
+                <button class="kmt-btn" id="kmt-entregado" onclick="showKanbanTab('entregado',this)" style="background:#eee; color:#333;">ENTREGADOS<br><span id="mtab-entregado">0</span></button>
+            </div>
+
+            <div class="kanban-board">
+                <div class="kanban-col mob-active" id="kcol-pendiente">
+                    <div class="kanban-col-header" style="background:#BF360C; color:white;">
+                        <span>NUEVOS</span>
+                        <span class="kanban-count" id="count-pendiente">0</span>
+                    </div>
+                    <div class="kanban-cards" id="cards-pendiente">
+                        <div class="kanban-empty">Sin pedidos</div>
+                    </div>
+                </div>
+
+                <div class="kanban-col" id="kcol-aprobado">
+                    <div class="kanban-col-header" style="background:#1B5E20; color:white;">
+                        <span>PAGO OK</span>
+                        <span class="kanban-count" id="count-aprobado">0</span>
+                    </div>
+                    <div class="kanban-cards" id="cards-aprobado">
+                        <div class="kanban-empty">Sin pedidos</div>
+                    </div>
+                </div>
+
+                <div class="kanban-col" id="kcol-preparacion">
+                    <div class="kanban-col-header" style="background:#0D47A1; color:white;">
+                        <span>EN PREP.</span>
+                        <span class="kanban-count" id="count-preparacion">0</span>
+                    </div>
+                    <div class="kanban-cards" id="cards-preparacion">
+                        <div class="kanban-empty">Sin pedidos</div>
+                    </div>
+                </div>
+
+                <div class="kanban-col" id="kcol-entregado">
+                    <div class="kanban-col-header" style="background:#212121; color:#aaa;">
+                        <span>ENTREGADOS</span>
+                        <span class="kanban-count" id="count-entregado">0</span>
+                    </div>
+                    <div class="kanban-cards" id="cards-entregado">
+                        <div class="kanban-empty">Sin pedidos</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- DASHBOARD -->
+        <section id="dashboard-section" class="admin-section">
+            <header>
+                <h1>Dashboard</h1>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <button class="refresh-btn" onclick="exportToWhatsApp()" style="background:#25D366; color:white; border-color:#1da851;">
+                        <i data-lucide="message-circle" style="width:14px;"></i> WHATSAPP
+                    </button>
+                    <button class="refresh-btn" onclick="exportToPDF()">
+                        <i data-lucide="file-text" style="width:14px;"></i> PDF
+                    </button>
+                    <button class="qty-btn" onclick="refreshAll()">
+                        <i data-lucide="refresh-cw" style="width:16px;"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="filter-bar">
+                <button class="filter-btn active" onclick="setFilter(event, 'hoy')">HOY</button>
+                <button class="filter-btn" onclick="setFilter(event, 'semana')">SEMANA</button>
+                <button class="filter-btn" onclick="setFilter(event, 'mes')">MES</button>
+                <button class="filter-btn" onclick="setFilter(event, 'trimestre')">TRIMESTRE</button>
+                <button class="filter-btn" onclick="setFilter(event, 'semestre')">SEMESTRE</button>
+                <button class="filter-btn" onclick="toggleCustomRange()">RANGO</button>
+                <div id="custom-range-row" class="custom-range">
+                    <input type="date" id="date-from">
+                    <span>—</span>
+                    <input type="date" id="date-to">
+                    <button class="filter-btn" onclick="applyCustomFilter()">OK</button>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>Ventas Totales</h3>
+                    <div class="value" id="stats-total-sales">$0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Pedidos</h3>
+                    <div class="value" id="stats-orders-count">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Ticket Promedio</h3>
+                    <div class="value" id="stats-avg-ticket">$0</div>
+                </div>
+            </div>
+
+            <div class="stats-grid dashboard-bottom-grid" style="grid-template-columns: 1fr 1fr; margin-top: 0;">
+                <div class="stat-card" style="min-height: 320px;">
+                    <h3 style="font-family:'Archivo Black';">Últimas Ventas</h3>
+                    <div id="recent-sales-log" style="font-size:0.88rem; margin-top:0.8rem;">Cargando...</div>
+                </div>
+                <div class="stat-card" style="min-height: 320px;">
+                    <h3 style="font-family:'Archivo Black';">Ranking Burgers</h3>
+                    <div id="best-sellers-list" style="margin-top:0.8rem;">Cargando...</div>
+                </div>
+            </div>
+
+            <div class="ranking-table-wrap">
+                <h3>Ranking de Clientes</h3>
+                <div class="table-scroll-wrap">
+                    <table class="brutalist-table" style="box-shadow:none; border:none;">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>NOMBRE</th>
+                                <th>PEDIDOS</th>
+                                <th>HAMBURGUESAS</th>
+                                <th>TOTAL GASTADO</th>
+                                <th>TICKET PROM.</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="customer-ranking-body">
+                            <tr><td colspan="5" style="text-align:center; padding:20px; color:#999;">Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- STOCK (deshabilitado desde nav) -->
+        <section id="stock-section" class="admin-section">
+            <header><h1>Gestión de Insumos</h1></header>
+            <div class="stock-control-panel">
+                <h2 style="margin-bottom:1.5rem; font-family:'Archivo Black'; font-size:1.2rem;">INGRESAR / ACTUALIZAR STOCK</h2>
+                <form id="stock-form" class="stock-form">
+                    <div class="input-group">
+                        <label>Insumo</label>
+                        <select id="stock-insumo-select" required><option value="">Seleccionar...</option></select>
+                    </div>
+                    <div class="input-group">
+                        <label>Cantidad</label>
+                        <input type="number" id="stock-qty" placeholder="0" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Acción</label>
+                        <select id="stock-action">
+                            <option value="add">SUMAR</option>
+                            <option value="set">FIJAR TOTAL</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="add-btn">ACTUALIZAR</button>
+                </form>
+            </div>
+            <div class="table-scroll-wrap">
+                <table class="brutalist-table">
+                    <thead>
+                        <tr><th>INSUMO</th><th>STOCK</th><th>MÍN.</th><th>ESTADO</th><th>ACC.</th></tr>
+                    </thead>
+                    <tbody id="stock-table-body"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- MARKETING -->
+        <section id="marketing-section" class="admin-section">
+            <header><h1>Marketing y Ofertas</h1></header>
+            <div class="stock-control-panel">
+                <h2 style="margin-bottom:1.5rem; font-family:'Archivo Black'; font-size:1.2rem;">CREAR NUEVA OFERTA</h2>
+                <form id="marketing-form" class="stock-form">
+                    <div class="input-group">
+                        <label>Tipo</label>
+                        <select id="m-apply-type" required onchange="toggleMarketingFields()">
+                            <option value="promo">PROMO AUTOMÁTICA</option>
+                            <option value="coupon">CUPÓN CON CÓDIGO</option>
+                        </select>
+                    </div>
+                    <div id="m-field-code" class="input-group" style="display:none">
+                        <label>Código</label>
+                        <input type="text" id="m-coupon-code" placeholder="RIOH20" style="text-transform:uppercase;">
+                    </div>
+                    <div class="input-group">
+                        <label>Nombre</label>
+                        <input type="text" id="m-name" placeholder="Ej: 2x1 Burgers" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Beneficio</label>
+                        <select id="m-benefit-type" required onchange="toggleMarketingFields()">
+                            <option value="percent">DESCUENTO %</option>
+                            <option value="fixed">MONTO FIJO ($)</option>
+                            <option value="multi_buy">2x1 / 3x2</option>
+                            <option value="second_unit">2da UNIDAD</option>
+                        </select>
+                    </div>
+                    <div id="m-field-value" class="input-group">
+                        <label>Valor</label>
+                        <input type="number" id="m-value" placeholder="10">
+                    </div>
+                    <div id="m-fields-multi" class="input-group" style="display:none; flex-direction:row; gap:10px;">
+                        <div style="flex:1"><label>Lleva</label><input type="number" id="m-buy" placeholder="2"></div>
+                        <div style="flex:1"><label>Paga</label><input type="number" id="m-pay" placeholder="1"></div>
+                    </div>
+                    <div id="m-field-second" class="input-group" style="display:none">
+                        <label>% en 2da</label>
+                        <input type="number" id="m-second-value" placeholder="50">
+                    </div>
+                    <div class="input-group">
+                        <label>Límite usos</label>
+                        <input type="number" id="m-limit" placeholder="100" value="100">
+                    </div>
+                    <button type="submit" class="add-btn">CREAR</button>
+                </form>
+            </div>
+            <div class="table-scroll-wrap">
+                <table class="brutalist-table">
+                    <thead>
+                        <tr><th>OFERTA / CÓDIGO</th><th>TIPO</th><th>BENEFICIO</th><th>USOS</th><th>ESTADO</th><th></th></tr>
+                    </thead>
+                    <tbody id="marketing-table-body"></tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- CUSTOMER PROFILE MODAL -->
+    <div id="customer-modal">
+        <div class="customer-modal-card">
+            <div class="customer-modal-header">
+                <h2 id="profile-name">Cliente</h2>
+                <button class="customer-modal-close" onclick="closeCustomerModal()">✕</button>
+            </div>
+            <div class="customer-modal-body">
+                <div id="profile-info" style="margin-bottom:1rem; font-size:0.85rem; color:#666;"></div>
+                <div class="profile-stats" id="profile-stats"></div>
+                <h3 style="font-family:'Archivo Black'; font-size:0.85rem; text-transform:uppercase; margin-bottom:0.8rem; padding-bottom:0.5rem; border-bottom:3px solid #111;">
+                    Historial de Pedidos
+                </h3>
+                <div id="profile-orders">Cargando...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="admin.js"></script>
+    <script>lucide.createIcons();</script>
+</body>
+
+</html>
