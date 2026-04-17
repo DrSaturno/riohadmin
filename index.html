@@ -583,6 +583,7 @@
             z-index: 2000;
             overflow-y: auto;
             padding: 2rem 1rem;
+            -webkit-overflow-scrolling: touch;
         }
 
         .customer-modal-card {
@@ -662,87 +663,125 @@
         ══════════════════════════════════ */
         @media (max-width: 900px) {
 
-            /* Show mobile header */
-            .mobile-header { display: flex; }
+            /* Body: bloquear overflow horizontal (sombras) */
+            body { overflow-x: hidden; display: block; }
 
-            /* Hide desktop logo in sidebar */
+            /* Mobile header visible */
+            .mobile-header { display: flex; }
             .admin-logo { display: none; }
 
-            /* Sidebar becomes full-screen drawer */
+            /* Sidebar como drawer */
             .sidebar {
                 transform: translateX(-100%);
                 width: 280px;
                 padding-top: 1.5rem;
                 z-index: 600;
+                overflow-y: auto;
             }
-
-            .sidebar.open {
-                transform: translateX(0);
-            }
-
+            .sidebar.open { transform: translateX(0); }
             .sidebar-overlay.open { display: block; }
 
-            /* Main content reset */
+            /* Main content */
             .main-content {
                 margin-left: 0;
-                padding: 1rem;
-                padding-top: calc(60px + 1rem);
+                padding: 0.9rem;
+                padding-top: calc(60px + 0.9rem);
+                overflow-x: hidden;
+                width: 100%;
             }
 
-            h1 { font-size: 1.6rem; }
+            /* Tipografía */
+            h1 { font-size: 1.3rem; }
 
-            /* Stats grid single column */
-            .stats-grid {
-                grid-template-columns: 1fr 1fr;
-                gap: 1rem;
+            /* Headers de sección */
+            header {
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-bottom: 1rem;
             }
+            .orders-header-controls { width: 100%; justify-content: flex-start; }
+            .dashboard-export-btns { width: 100%; justify-content: flex-start !important; }
+            .dashboard-export-btns .refresh-btn { font-size: 0.72rem; padding: 6px 10px; }
+            .dashboard-export-btns .qty-btn { padding: 6px 10px; }
 
-            /* Kanban: tab-based on mobile */
+            /* Stats grid 2 columnas, padding reducido */
+            .stats-grid { grid-template-columns: 1fr 1fr; gap: 0.7rem; margin-bottom: 1.2rem; }
+            .stat-card { padding: 1rem; box-shadow: 4px 4px 0 var(--text-dark); }
+            .stat-card .value { font-size: 1.5rem; }
+
+            /* Dashboard bottom: una columna, sin min-height fija */
+            .dashboard-bottom-grid { grid-template-columns: 1fr !important; gap: 0.7rem !important; }
+            .dashboard-bottom-grid .stat-card { min-height: auto !important; }
+
+            /* Kanban: tabs + una columna a la vez */
             .kanban-mobile-tabs { display: flex; }
             .kanban-board { grid-template-columns: 1fr; }
             .kanban-col { display: none; }
             .kanban-col.mob-active { display: block; }
 
-            /* Forms stack vertically */
-            .stock-form {
-                grid-template-columns: 1fr;
-            }
+            /* Forms */
+            .stock-form { grid-template-columns: 1fr; gap: 0.8rem; }
+            .stock-control-panel { padding: 1rem; margin-bottom: 1.2rem; box-shadow: 4px 4px 0 var(--primary); }
+            .stock-control-panel h2 { font-size: 1rem !important; }
+            #m-fields-multi { flex-direction: column !important; gap: 0.5rem !important; }
 
-            /* Filter bar scrollable */
+            /* Filter bars: scroll horizontal */
             .filter-bar {
                 overflow-x: auto;
                 flex-wrap: nowrap;
-                padding-bottom: 4px;
+                padding-bottom: 6px;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                margin-bottom: 1rem;
             }
+            .filter-bar::-webkit-scrollbar { display: none; }
+            .filter-btn { white-space: nowrap; flex-shrink: 0; font-size: 0.72rem; padding: 7px 11px; }
 
-            /* Dashboard bottom grid */
-            .dashboard-bottom-grid {
-                grid-template-columns: 1fr !important;
-            }
-
-            /* Table wraps */
+            /* Tablas: scroll horizontal */
             .table-scroll-wrap {
-                margin: 0 -1rem;
-                padding: 0 1rem;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                max-width: 100%;
+                scrollbar-width: thin;
             }
+            .brutalist-table { box-shadow: none; }
+            .brutalist-table th,
+            .brutalist-table td { padding: 0.6rem 0.8rem; font-size: 0.78rem; white-space: nowrap; }
 
-            /* Header layout */
-            header {
-                flex-wrap: wrap;
-                gap: 10px;
-                margin-bottom: 1.2rem;
+            /* Ranking table */
+            .ranking-table-wrap { margin-top: 0.8rem; box-shadow: 4px 4px 0 var(--text-dark); }
+
+            /* Customer profile modal: full-screen */
+            #customer-modal { padding: 0; align-items: flex-start; }
+            .customer-modal-card {
+                min-height: 100dvh;
+                margin: 0;
+                border-left: none;
+                border-right: none;
+                box-shadow: none;
+                max-width: 100%;
             }
+            .customer-modal-body { padding: 1rem; }
+            .profile-stats { gap: 0.4rem; }
+            .profile-stat { padding: 0.5rem 0.3rem; }
+            .profile-stat .ps-value { font-size: 0.95rem; }
+            .profile-stat .ps-label { font-size: 0.58rem; }
 
-            .orders-header-controls { width: 100%; justify-content: flex-start; }
-
+            /* Login */
             .login-card { padding: 2rem 1.5rem; }
             .login-logo { font-size: 2.5rem; }
+
+            /* Kanban tabs */
+            .kmt-btn { font-size: 0.6rem; padding: 7px 3px; }
         }
 
         @media (max-width: 480px) {
-            .stats-grid { grid-template-columns: 1fr; }
-            .stat-card { padding: 1.2rem; }
-            .stat-card .value { font-size: 1.4rem; }
+            .stats-grid { grid-template-columns: 1fr; gap: 0.6rem; }
+            h1 { font-size: 1.1rem; }
+            .stat-card .value { font-size: 1.3rem; }
+            .refresh-btn { font-size: 0.68rem; padding: 5px 8px; }
+            .auto-refresh-badge { display: none; }
+            .kanban-col-header { font-size: 0.65rem; padding: 0.6rem 0.8rem; }
         }
     </style>
 </head>
@@ -911,7 +950,7 @@
         <section id="dashboard-section" class="admin-section">
             <header>
                 <h1>Dashboard</h1>
-                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <div class="dashboard-export-btns" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                     <button class="refresh-btn" onclick="exportToWhatsApp()" style="background:#25D366; color:white; border-color:#1da851;">
                         <i data-lucide="message-circle" style="width:14px;"></i> WHATSAPP
                     </button>
