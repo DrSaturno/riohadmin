@@ -2,7 +2,7 @@
 
 // Credenciales (usuario de prueba hasta producción)
 const ADMIN_USERS = {
-    admin: 'rioh2025'
+    admin: 'riohadmin2025'
 };
 const SESSION_KEY = 'rioh_admin_v2';
 
