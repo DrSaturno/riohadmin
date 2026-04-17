@@ -1,7 +1,1 @@
-{
-  "buildCommand": "",
-  "outputDirectory": ".",
-  "rewrites": [
-    { "source": "/", "destination": "/admin.html" }
-  ]
-}
+{}
