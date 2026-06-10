@@ -682,7 +682,10 @@ function renderKanban(orders) {
             const tel = o.clientes?.whatsapp || '';
             const d = new Date(o.created_at);
             const hora = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-            const items = (o.items || []).map(i => `<div>${i.qty}x ${i.title} <small style="color:#999;">(${i.type})</small></div>`).join('');
+            const items = (o.items || []).map(i => {
+                const extrasStr = (i.extras && i.extras.length) ? ` <small style="color:var(--primary); font-weight:700;">+ ${i.extras.join(', ')}</small>` : '';
+                return `<div>${i.qty}x ${i.title} <small style="color:#999;">(${i.type || '-'})</small>${extrasStr}</div>`;
+            }).join('');
             const entrega = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup' ? '🏠 Retiro' : `🛵 ${o.direccion_entrega || 'Delivery'}`;
 
             const actionRow = estado !== 'entregado'
@@ -770,70 +773,111 @@ window.advanceOrder = async function (id, _uiState) {
 };
 
 async function deductOrderStock(orderId) {
+    // Mapa de extras → qué insumo buscar y cuánto descontar por cada extra
+    const EXTRAS_INSUMO_MAP = {
+        'Medallón Extra':  { buscar: 'medallón', cantidad: 1 },
+        'Extra Cheddar':   { buscar: 'cheddar',  cantidad: 2 },
+        'Extra Bacon':     { buscar: 'panceta ahumada', cantidad: 2 }
+    };
+
     try {
         const { data: order } = await client.from('pedidos').select('items').eq('id', orderId).single();
         if (!order || !order.items) { console.warn("deductOrderStock: no items found for order", orderId); return; }
 
-        console.log("Deducting stock for order:", orderId, "Items:", JSON.stringify(order.items));
+        console.log("═══ DEDUCCIÓN DE STOCK — Pedido:", orderId, "═══");
+        console.log("Items del pedido:", JSON.stringify(order.items, null, 2));
 
-        // Acumular todas las deducciones en un mapa antes de aplicarlas
-        // Esto evita problemas si varios items usan el mismo insumo
-        const insumoDeductions = {}; // { insumo_id: totalToDeduct }
+        // Precargar TODOS los insumos para poder buscar extras por nombre
+        const { data: allInsumos } = await client.from('insumos').select('id, nombre, stock_actual');
+        const insumosMap = {};
+        if (allInsumos) {
+            allInsumos.forEach(ins => { insumosMap[String(ins.id)] = ins; });
+        }
+        console.log("Insumos cargados:", allInsumos ? allInsumos.map(i => `${i.id}:${i.nombre}`).join(', ') : 'ninguno');
+
+        // Acumular todas las deducciones antes de aplicarlas
+        const insumoDeductions = {};   // { insumo_id: totalToDeduct }
         const productoDeductions = {}; // { producto_id: totalToDeduct }
 
         for (const item of order.items) {
             if (!item.product_id) continue;
             const qty = parseInt(item.qty) || 1;
+            const isDoble = (item.type || '').toLowerCase() === 'doble';
+
+            console.log(`\n── Item: ${item.title} | Tipo: ${item.type || '-'} (isDoble=${isDoble}) | Qty: ${qty} | Extras: ${JSON.stringify(item.extras || [])}`);
 
             const { data: producto } = await client.from('productos').select('receta, stock').eq('id', item.product_id).single();
-            if (!producto) { console.warn("Product not found:", item.product_id); continue; }
+            if (!producto) { console.warn("  ⚠ Producto no encontrado:", item.product_id); continue; }
 
+            // --- 1) Deducciones por RECETA del producto ---
             if (producto.receta && producto.receta.ingredientes && producto.receta.ingredientes.length > 0) {
-                // Producto con receta: calcular deducciones por ingrediente
                 for (const ri of producto.receta.ingredientes) {
                     const baseQty = parseFloat(ri.cantidad) || 0;
-
-                    // Si el ingrediente tiene doble_mult y el item es Doble, multiplicar
                     let typeFactor = 1;
-                    if (item.type === 'Doble' && ri.doble_mult) {
+                    if (isDoble && ri.doble_mult) {
                         typeFactor = parseFloat(ri.doble_mult);
                     }
-
                     const deductAmount = baseQty * typeFactor * qty;
-
-                    console.log(`  → ${ri.nombre}: base=${baseQty} × typeFactor=${typeFactor} × qty=${qty} = ${deductAmount}`);
-
                     const ingId = String(ri.ingrediente_id);
                     insumoDeductions[ingId] = (insumoDeductions[ingId] || 0) + deductAmount;
+                    console.log(`  📦 Receta → ${ri.nombre}: base=${baseQty} × factor=${typeFactor} × qty=${qty} = ${deductAmount}`);
                 }
             } else if (producto.stock !== null && producto.stock !== undefined) {
-                // Producto sin receta (extras): descontar stock del producto
+                // Producto sin receta (ej: nuggets, papas): descontar stock directo
                 const prodId = String(item.product_id);
                 productoDeductions[prodId] = (productoDeductions[prodId] || 0) + qty;
+                console.log(`  📦 Producto directo → ${item.title}: qty=${qty}`);
+            }
+
+            // --- 2) Deducciones por EXTRAS del item ---
+            if (item.extras && item.extras.length > 0) {
+                for (const extraName of item.extras) {
+                    const mapping = EXTRAS_INSUMO_MAP[extraName];
+                    if (!mapping) {
+                        console.warn(`  ⚠ Extra "${extraName}" no tiene mapeo de insumo definido`);
+                        continue;
+                    }
+                    // Buscar el insumo por nombre (case-insensitive, parcial)
+                    const matchedInsumo = allInsumos ? allInsumos.find(ins =>
+                        ins.nombre.toLowerCase().includes(mapping.buscar.toLowerCase())
+                    ) : null;
+                    if (!matchedInsumo) {
+                        console.warn(`  ⚠ No se encontró insumo para extra "${extraName}" (buscando "${mapping.buscar}")`);
+                        continue;
+                    }
+                    const deductAmount = mapping.cantidad * qty;
+                    const ingId = String(matchedInsumo.id);
+                    insumoDeductions[ingId] = (insumoDeductions[ingId] || 0) + deductAmount;
+                    console.log(`  🔥 Extra → "${extraName}" → insumo "${matchedInsumo.nombre}" (id:${ingId}): ${mapping.cantidad} × qty=${qty} = ${deductAmount}`);
+                }
             }
         }
 
-        // Aplicar deducciones a insumos (una sola operación por insumo)
+        // --- 3) Aplicar todas las deducciones acumuladas ---
+        console.log("\n── Aplicando deducciones ──");
+
+        // Insumos
         for (const [insumoId, totalDeduct] of Object.entries(insumoDeductions)) {
             const { data: ing } = await client.from('insumos').select('stock_actual').eq('id', insumoId).single();
             if (ing) {
                 const newStock = Math.max(0, ing.stock_actual - totalDeduct);
-                console.log(`  INSUMO ${insumoId}: ${ing.stock_actual} - ${totalDeduct} = ${newStock}`);
+                const nombre = insumosMap[insumoId] ? insumosMap[insumoId].nombre : insumoId;
+                console.log(`  ✅ INSUMO "${nombre}" (${insumoId}): ${ing.stock_actual} - ${totalDeduct} = ${newStock}`);
                 await client.from('insumos').update({ stock_actual: newStock }).eq('id', insumoId);
             }
         }
 
-        // Aplicar deducciones a productos sin receta
+        // Productos sin receta
         for (const [prodId, totalDeduct] of Object.entries(productoDeductions)) {
             const { data: prod } = await client.from('productos').select('stock').eq('id', prodId).single();
             if (prod) {
                 const newStock = Math.max(0, prod.stock - totalDeduct);
-                console.log(`  PRODUCTO ${prodId}: ${prod.stock} - ${totalDeduct} = ${newStock}`);
+                console.log(`  ✅ PRODUCTO ${prodId}: ${prod.stock} - ${totalDeduct} = ${newStock}`);
                 await client.from('productos').update({ stock: newStock }).eq('id', prodId);
             }
         }
 
-        console.log("Stock deduction complete for order:", orderId);
+        console.log("\n═══ DEDUCCIÓN COMPLETA — Pedido:", orderId, "═══");
     } catch (e) { console.error("Error deducting stock:", e); }
 }
 
