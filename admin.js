@@ -729,13 +729,20 @@ window.showKanbanTab = function (estado, btn) {
 };
 
 window.advanceOrder = async function (id, currentState) {
-    const next = { pendiente: 'aprobado', aprobado: 'preparacion', preparacion: 'entregado' };
+    const next = {
+        pendiente: 'aprobado',
+        pendiente_efectivo: 'aprobado',
+        pendiente_transferencia: 'aprobado',
+        aprobado: 'preparacion',
+        preparacion: 'entregado'
+    };
     if (!next[currentState]) return;
     try {
         const { error } = await client.from('pedidos').update({ estado_pago: next[currentState] }).eq('id', id);
         if (error) throw error;
-        // Descontar ingredientes al confirmar pago (pendiente → aprobado)
-        if (currentState === 'pendiente') {
+        // Descontar stock al confirmar pago (cualquier estado pendiente → aprobado)
+        const isPending = currentState === 'pendiente' || currentState === 'pendiente_efectivo' || currentState === 'pendiente_transferencia';
+        if (isPending) {
             await deductOrderStock(id);
         }
         loadOrders();
