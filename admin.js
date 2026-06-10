@@ -202,10 +202,10 @@ function updateStoreStatusUI(isOnline) {
     const label = document.getElementById('store-status-label');
     if (!label) return;
     if (isOnline) {
-        label.textContent = 'ABIERTA';
+        label.textContent = 'ABIERTA (MANUAL)';
         label.className = 'store-toggle-status online';
     } else {
-        label.textContent = 'CERRADA';
+        label.textContent = 'SOLO HORARIOS';
         label.className = 'store-toggle-status offline';
     }
 }

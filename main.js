@@ -71,54 +71,60 @@ let selectedPayMethod = null;
 let storeHoursConfig = null;
 
 function getStoreStatus() {
-    if (!isMasterOnline) {
-        return { open: false, nextOpening: 'cuando la tienda vuelva a abrir' };
-    }
-
     if (localStorage.getItem('rioh_demo') === '1') {
         return { open: true };
     }
 
-    if (!storeHoursConfig || !storeHoursConfig.dias || !storeHoursConfig.dias.length) {
+    // Toggle ON = manual override, store is ALWAYS open
+    if (isMasterOnline) {
         return { open: true };
     }
 
-    const now = new Date();
-    const currentDay = now.getDay();
-    const currentTime = now.getHours() * 60 + now.getMinutes();
+    // Toggle OFF = check if we're within scheduled hours (automatic mode)
+    if (storeHoursConfig && storeHoursConfig.dias && storeHoursConfig.dias.length) {
+        const now = new Date();
+        const currentDay = now.getDay();
+        const currentTime = now.getHours() * 60 + now.getMinutes();
 
-    const [openH, openM] = (storeHoursConfig.hora_apertura || '18:00').split(':').map(Number);
-    const [closeH, closeM] = (storeHoursConfig.hora_cierre || '00:00').split(':').map(Number);
-    const openMinutes = openH * 60 + openM;
-    const closeMinutes = closeH * 60 + closeM;
+        const [openH, openM] = (storeHoursConfig.hora_apertura || '18:00').split(':').map(Number);
+        const [closeH, closeM] = (storeHoursConfig.hora_cierre || '00:00').split(':').map(Number);
+        const openMinutes = openH * 60 + openM;
+        const closeMinutes = closeH * 60 + closeM;
 
-    const isOperatingDay = storeHoursConfig.dias.includes(currentDay);
-    const isOvernight = closeMinutes <= openMinutes;
+        const isOperatingDay = storeHoursConfig.dias.includes(currentDay);
+        const isOvernight = closeMinutes <= openMinutes;
 
-    let isOpen = false;
-    if (isOperatingDay) {
-        if (isOvernight) {
-            isOpen = currentTime >= openMinutes;
-        } else {
-            isOpen = currentTime >= openMinutes && currentTime < closeMinutes;
+        let isOpen = false;
+        if (isOperatingDay) {
+            if (isOvernight) {
+                isOpen = currentTime >= openMinutes;
+            } else {
+                isOpen = currentTime >= openMinutes && currentTime < closeMinutes;
+            }
         }
+
+        if (!isOpen && isOvernight && closeMinutes > 0) {
+            const yesterday = (currentDay + 6) % 7;
+            if (storeHoursConfig.dias.includes(yesterday) && currentTime < closeMinutes) {
+                isOpen = true;
+            }
+        }
+
+        if (isOpen) return { open: true };
     }
 
-    if (!isOpen && isOvernight && closeMinutes > 0) {
-        const yesterday = (currentDay + 6) % 7;
-        if (storeHoursConfig.dias.includes(yesterday) && currentTime < closeMinutes) {
-            isOpen = true;
-        }
-    }
-
-    if (isOpen) return { open: true };
-
+    // Toggle OFF + outside hours = closed
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-    const nextDay = storeHoursConfig.dias.find(d => d > currentDay) ?? storeHoursConfig.dias[0];
-    const nextDayName = dayNames[nextDay] || '';
-    const nextTime = storeHoursConfig.hora_apertura || '18:00';
+    if (storeHoursConfig && storeHoursConfig.dias && storeHoursConfig.dias.length) {
+        const now = new Date();
+        const currentDay = now.getDay();
+        const nextDay = storeHoursConfig.dias.find(d => d > currentDay) ?? storeHoursConfig.dias[0];
+        const nextDayName = dayNames[nextDay] || '';
+        const nextTime = storeHoursConfig.hora_apertura || '18:00';
+        return { open: false, nextOpening: `el ${nextDayName} a las ${nextTime}` };
+    }
 
-    return { open: false, nextOpening: `el ${nextDayName} a las ${nextTime}` };
+    return { open: false, nextOpening: 'cuando la tienda vuelva a abrir' };
 }
 
 async function fetchStoreHours() {
@@ -275,10 +281,17 @@ async function checkIngredientAvailability() {
 
         menuData.forEach(item => {
             if (item.receta && item.receta.ingredientes && item.receta.ingredientes.length > 0) {
+                // Product has recipe: availability depends on ingredient stock
                 const canMake = item.receta.ingredientes.every(ri =>
                     (ingStock[ri.ingrediente_id] || 0) >= ri.cantidad
                 );
-                if (!canMake) item.stock = 0;
+                item.stock = canMake ? 999 : 0;
+            } else {
+                // Product without recipe: if stock is 0 (default), treat as available
+                // Only mark as AGOTADO if stock was explicitly set to a negative or product is inactive
+                if (item.stock === 0 || item.stock === null || item.stock === undefined) {
+                    item.stock = 999;
+                }
             }
         });
     } catch (e) { console.error("Error checking ingredient availability:", e); }
