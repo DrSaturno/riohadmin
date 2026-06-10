@@ -156,8 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadActivePromos();
     fetchMasterStatus();
     fetchStoreHours();
-    subscribeToStoreStatus();
-    subscribeToStoreHours();
+    subscribeToStoreChanges();
     initScrollButtons();
 
     // Initial status check
@@ -194,11 +193,11 @@ async function fetchMasterStatus() {
     } catch (e) { console.error("Error fetching master status:", e); }
 }
 
-function subscribeToStoreStatus() {
+function subscribeToStoreChanges() {
     if (!supabaseClient) return;
     supabaseClient
-        .from('configuracion')
-        .on('*', payload => {
+        .channel('web-store-config')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracion' }, payload => {
             if (payload.new && payload.new.id === 'ventas_web' && payload.new.valor) {
                 const newValue = payload.new.valor.online;
                 if (isMasterOnline !== newValue) {
@@ -207,15 +206,6 @@ function subscribeToStoreStatus() {
                     console.log('Store status updated via Realtime:', newValue ? 'OPEN' : 'CLOSED');
                 }
             }
-        })
-        .subscribe();
-}
-
-function subscribeToStoreHours() {
-    if (!supabaseClient) return;
-    supabaseClient
-        .from('configuracion')
-        .on('*', payload => {
             if (payload.new && payload.new.id === 'horarios_atencion' && payload.new.valor) {
                 storeHoursConfig = payload.new.valor;
                 renderMenu(menuData);
@@ -1192,21 +1182,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
             console.log("Checking customer for phone:", phone);
             try {
-                const { data, error } = await supabaseClient
+                const { data } = await supabaseClient
                     .from('clientes')
                     .select('nombre, email')
                     .eq('whatsapp', phone)
-                    .single();
+                    .maybeSingle();
 
                 if (data) {
                     console.log("Customer found! Auto-filling data...");
                     const nameInput = document.getElementById('cust-name');
                     const emailInput = document.getElementById('cust-email');
 
-                    if (nameInput) nameInput.value = data.nombre;
-                    if (emailInput) emailInput.value = data.email;
+                    if (nameInput && data.nombre) nameInput.value = data.nombre;
+                    if (emailInput && data.email) emailInput.value = data.email;
 
-                    // Visual feedback
                     phoneInput.style.borderColor = "#2E7D32";
                     setTimeout(() => phoneInput.style.borderColor = "", 2000);
                 }
@@ -1250,27 +1239,54 @@ window.submitOrder = async function() {
 
             let total = subtotal - discount + shipping;
 
-            // 1. Client Handling (Check if exists first)
-            const phone = document.getElementById('cust-phone').value;
+            // 1. Client Handling
+            const phone = document.getElementById('cust-phone').value.trim();
+            const custName = document.getElementById('cust-name').value.trim();
+            const custEmail = document.getElementById('cust-email').value.trim();
+            const custAddress = document.getElementById('cust-address')?.value?.trim() || '';
+            const custZona = currentDeliveryMethod === 'delivery' ? document.getElementById('shipping-zone').options[document.getElementById('shipping-zone').selectedIndex].text : null;
             let clientId = null;
 
-            const { data: existingClient } = await supabaseClient
-                .from('clientes')
-                .select('id')
-                .eq('whatsapp', phone)
-                .maybeSingle();
+            // Try to find existing client: by user_id first, then by phone
+            let existingClient = null;
+            if (currentUser) {
+                const { data } = await supabaseClient
+                    .from('clientes')
+                    .select('id')
+                    .eq('user_id', currentUser.id)
+                    .maybeSingle();
+                existingClient = data;
+            }
+            if (!existingClient && phone) {
+                const { data } = await supabaseClient
+                    .from('clientes')
+                    .select('id')
+                    .eq('whatsapp', phone)
+                    .maybeSingle();
+                existingClient = data;
+            }
 
             if (existingClient) {
                 console.log("Existing client found, using ID:", existingClient.id);
                 clientId = existingClient.id;
+                // Update their info
+                await supabaseClient.from('clientes').update({
+                    nombre: custName,
+                    whatsapp: phone,
+                    email: custEmail,
+                    direccion: custAddress
+                }).eq('id', clientId);
             } else {
                 console.log("New client, capturing data...");
                 const { data: newClient, error: cErr } = await supabaseClient.from('clientes').insert({
-                    nombre: document.getElementById('cust-name').value,
+                    user_id: currentUser ? currentUser.id : null,
+                    nombre: custName,
                     whatsapp: phone,
-                    email: document.getElementById('cust-email').value,
-                    direccion: document.getElementById('cust-address').value,
-                    zona: currentDeliveryMethod === 'delivery' ? document.getElementById('shipping-zone').options[document.getElementById('shipping-zone').selectedIndex].text : null
+                    email: custEmail,
+                    direccion: custAddress,
+                    zona: custZona,
+                    pedidos_count: 0,
+                    total_gastado: 0
                 }).select();
                 if (cErr) throw cErr;
                 clientId = newClient[0].id;
