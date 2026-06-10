@@ -163,10 +163,11 @@ function showStatusToast(message) {
     setTimeout(() => t.remove(), 3000);
 }
 
-// ── EXPORT: WHATSAPP ──
+// ── EXPORT: WHATSAPP (DASHBOARD) ──
 window.exportToWhatsApp = function () {
     const total = document.getElementById('stats-total-sales')?.innerText || '$0';
     const pedidos = document.getElementById('stats-orders-count')?.innerText || '0';
+    const burgers = document.getElementById('stats-burgers-count')?.innerText || '0';
     const ticket = document.getElementById('stats-avg-ticket')?.innerText || '$0';
     const filters = { hoy: 'Hoy', semana: 'Semana', mes: 'Mes', trimestre: 'Trimestre', semestre: 'Semestre', custom: 'Rango personalizado' };
     const periodo = filters[currentFilter] || currentFilter;
@@ -174,9 +175,9 @@ window.exportToWhatsApp = function () {
     const bestEl = document.getElementById('best-sellers-list');
     if (bestEl) {
         const rows = bestEl.querySelectorAll('div');
-        rows.forEach((r, i) => { if (i < 3) sellers += `  ${r.textContent.trim()}\n`; });
+        rows.forEach((r, i) => { if (i < 5) sellers += `  ${r.textContent.trim()}\n`; });
     }
-    const text = `🍔 *RIOH. Burgers — Resumen ${periodo}*\n\n💰 Ventas: *${total}*\n📦 Pedidos: *${pedidos}*\n🎯 Ticket promedio: *${ticket}*\n\n🏆 Top productos:\n${sellers || '  Sin datos'}\n\n_Panel RIOH.ADMIN_`;
+    const text = `🍔 *RIOH. Burgers — Dashboard ${periodo}*\n\n📦 Pedidos: *${pedidos}*\n🍔 Burgers vendidas: *${burgers}*\n💰 Facturado: *${total}*\n🎯 Ticket promedio: *${ticket}*\n\n🏆 Ranking de productos:\n${sellers || '  Sin datos'}\n\n_Panel RIOH.ADMIN_`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
 };
 
@@ -1219,7 +1220,8 @@ window.applyCustomFilter = function () {
 async function loadDashboard() {
     if (!client) return;
     try {
-        let query = client.from('pedidos').select('*');
+        // Query pedidos WITH client data, filtered by date
+        let query = client.from('pedidos').select('*, clientes(id, user_id, nombre, whatsapp, email)').order('created_at', { ascending: false });
         let startDate, labelSuffix = 'Hoy';
 
         if (currentFilter === 'hoy') {
@@ -1245,31 +1247,47 @@ async function loadDashboard() {
         const { data: pedidos, error } = await query;
         if (error) throw error;
 
+        // ── MÉTRICAS: calcular todo desde los pedidos reales ──
+        const totalPedidos = pedidos.length;
+        const entregados = pedidos.filter(p => p.estado_pago === 'entregado').length;
+        const confirmados = pedidos.filter(p => ['aprobado', 'preparacion', 'entregado'].includes(p.estado_pago));
+
         const totalSales = pedidos.reduce((acc, p) => acc + (p.total || 0), 0);
-        const avgTicket = pedidos.length > 0 ? Math.round(totalSales / pedidos.length) : 0;
+        const avgTicket = totalPedidos > 0 ? Math.round(totalSales / totalPedidos) : 0;
+
+        // Contar burgers y items
+        let totalBurgers = 0;
+        const itemCounts = {};
+        pedidos.forEach(p => {
+            (p.items || []).forEach(i => {
+                const title = i.title || '';
+                const qty = parseInt(i.qty) || 1;
+                const isBurger = !title.toLowerCase().includes('nuggets') && !title.toLowerCase().includes('papas');
+                if (isBurger) totalBurgers += qty;
+                itemCounts[title] = (itemCounts[title] || 0) + qty;
+            });
+        });
+
+        // Top 2 burgers para subtítulo
+        const topBurgers = Object.entries(itemCounts)
+            .filter(([k]) => !k.toLowerCase().includes('nuggets') && !k.toLowerCase().includes('papas'))
+            .sort((a, b) => b[1] - a[1]).slice(0, 2);
+
+        // ── Actualizar DOM de métricas ──
+        document.getElementById('stats-orders-count').innerText = totalPedidos;
+        document.getElementById('stats-orders-sub').innerText = `${entregados} entregados · ${labelSuffix}`;
+
+        document.getElementById('stats-burgers-count').innerText = totalBurgers;
+        document.getElementById('stats-burgers-sub').innerText = topBurgers.map(([k, v]) => `${v}x ${k}`).join(' · ') || '—';
 
         document.getElementById('stats-total-sales').innerText = `$${totalSales.toLocaleString()}`;
-        document.getElementById('stats-orders-count').innerText = pedidos.length;
+        document.getElementById('stats-sales-sub').innerText = `${confirmados.length} confirmados · ${labelSuffix}`;
+
         document.getElementById('stats-avg-ticket').innerText = `$${avgTicket.toLocaleString()}`;
+        document.getElementById('stats-ticket-sub').innerText = totalPedidos > 0 ? `sobre ${totalPedidos} pedidos` : '—';
 
-        const ordersTitle = document.getElementById('stats-orders-count')?.previousElementSibling;
-        if (ordersTitle) ordersTitle.innerText = `Pedidos (${labelSuffix})`;
-
-        document.getElementById('recent-sales-log').innerHTML = pedidos.slice(0, 10).map(p => `
-            <div style="border-bottom: 1px dashed #eee; padding: 10px 0;">
-                <div style="display:flex; justify-content:space-between;">
-                    <strong>#${p.numero_pedido || 'S/N'}</strong>
-                    <span>$${(p.total || 0).toLocaleString()}</span>
-                </div>
-                <small style="color:#888;">${new Date(p.created_at).toLocaleString('es-AR')}</small>
-            </div>
-        `).join('') || '<div style="color:#999; padding:20px;">SIN VENTAS</div>';
-
-        const counts = {};
-        pedidos.forEach(p => {
-            if (p.items) p.items.forEach(i => counts[i.title] = (counts[i.title] || 0) + (i.qty || 1));
-        });
-        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+        // ── Ranking Burgers (todos los items) ──
+        const sorted = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
         document.getElementById('best-sellers-list').innerHTML = sorted.map(([name, qty], i) => `
             <div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee; ${i === 0 ? 'background:#FFF9C4; border:1px solid #FBC02D;' : ''}">
                 <span>${i + 1}. ${name}</span>
@@ -1277,52 +1295,82 @@ async function loadDashboard() {
             </div>
         `).join('') || '<div style="color:#999; padding:20px;">SIN DATOS</div>';
 
-        loadCustomerRanking();
+        // ── Últimas Ventas ──
+        document.getElementById('recent-sales-log').innerHTML = pedidos.slice(0, 10).map(p => {
+            const itemsStr = (p.items || []).map(i => {
+                let s = `${i.qty}x ${i.title}`;
+                if (i.extras && i.extras.length) s += ` +${i.extras.join(', ')}`;
+                return s;
+            }).join(', ');
+            return `<div style="border-bottom: 1px dashed #eee; padding: 10px 0;">
+                <div style="display:flex; justify-content:space-between;">
+                    <strong>#${p.numero_pedido || 'S/N'}</strong>
+                    <span style="font-weight:900;">$${(p.total || 0).toLocaleString()}</span>
+                </div>
+                <div style="font-size:0.75rem; color:#555; margin-top:2px;">${itemsStr}</div>
+                <small style="color:#888;">${new Date(p.created_at).toLocaleString('es-AR')} · ${p.clientes?.nombre || 'S/N'}</small>
+            </div>`;
+        }).join('') || '<div style="color:#999; padding:20px;">SIN VENTAS</div>';
+
+        // ── Ranking de Clientes: computado desde los pedidos filtrados ──
+        renderCustomerRanking(pedidos);
+
     } catch (err) { console.error("Dashboard Load Error:", err); }
 }
 
-async function loadCustomerRanking() {
-    if (!client) return;
-    try {
-        const [clientesRes, pedidosRes] = await Promise.all([
-            client.from('clientes').select('id, user_id, nombre, whatsapp, email, pedidos_count, total_gastado').order('total_gastado', { ascending: false }).limit(30),
-            client.from('pedidos').select('user_id, items')
-        ]);
+function renderCustomerRanking(pedidos) {
+    // Agrupar pedidos por cliente, usando cliente_id o user_id
+    const clientMap = {}; // keyed by a unique client identifier
 
-        if (clientesRes.error) throw clientesRes.error;
-        const clientes = clientesRes.data || [];
-        const pedidos = pedidosRes.data || [];
+    pedidos.forEach(p => {
+        const clienteData = p.clientes;
+        const key = clienteData?.id || p.user_id || p.cliente_id || null;
+        if (!key) return;
 
-        const burgerMap = {};
-        pedidos.forEach(p => {
-            if (!p.user_id) return;
-            if (!burgerMap[p.user_id]) burgerMap[p.user_id] = 0;
-            (p.items || []).forEach(i => {
-                if (i.type === 'Simple' || i.type === 'Doble') {
-                    burgerMap[p.user_id] += (i.qty || 1);
-                }
-            });
+        if (!clientMap[key]) {
+            clientMap[key] = {
+                id: clienteData?.id || key,
+                user_id: clienteData?.user_id || p.user_id || '',
+                nombre: clienteData?.nombre || 'S/N',
+                whatsapp: clienteData?.whatsapp || '',
+                email: clienteData?.email || '',
+                pedidos: 0,
+                burgers: 0,
+                total: 0
+            };
+        }
+
+        clientMap[key].pedidos++;
+        clientMap[key].total += (p.total || 0);
+
+        (p.items || []).forEach(i => {
+            const t = (i.type || '').toLowerCase();
+            if (t === 'simple' || t === 'doble') {
+                clientMap[key].burgers += (parseInt(i.qty) || 1);
+            }
         });
+    });
 
-        const tbody = document.getElementById('customer-ranking-body');
-        if (!tbody) return;
+    // Ordenar por total gastado descendente
+    const ranked = Object.values(clientMap).sort((a, b) => b.total - a.total);
 
-        tbody.innerHTML = clientes.map((c, i) => {
-            const ticket = c.pedidos_count > 0 ? Math.round((c.total_gastado || 0) / c.pedidos_count) : 0;
-            const burgers = burgerMap[c.user_id] || 0;
-            const top = i === 0 ? 'background:#FFF9C4;' : '';
-            return `<tr style="${top}">
-                <td style="font-family:'Archivo Black';">${i + 1}</td>
-                <td style="font-weight:700;">${c.nombre || 'S/N'}</td>
-                <td>${c.pedidos_count || 0}</td>
-                <td style="font-weight:900;">${burgers}</td>
-                <td style="font-weight:900;">$${(c.total_gastado || 0).toLocaleString()}</td>
-                <td>$${ticket.toLocaleString()}</td>
-                <td><button class="qty-btn" style="font-size:0.7rem; padding:5px 10px;" onclick="openCustomerProfile('${c.user_id}','${(c.nombre || '').replace(/'/g, "\\'")}','${c.whatsapp || ''}','${c.email || ''}')">VER</button></td>
-            </tr>`;
-        }).join('') || '<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">Sin datos de clientes</td></tr>';
+    const tbody = document.getElementById('customer-ranking-body');
+    if (!tbody) return;
 
-    } catch (err) { console.error("Customer Ranking Error:", err); }
+    tbody.innerHTML = ranked.map((c, i) => {
+        const ticket = c.pedidos > 0 ? Math.round(c.total / c.pedidos) : 0;
+        const top = i === 0 ? 'background:#FFF9C4;' : '';
+        const uid = c.user_id || c.id || '';
+        return `<tr style="${top}">
+            <td style="font-family:'Archivo Black';">${i + 1}</td>
+            <td style="font-weight:700;">${c.nombre}</td>
+            <td>${c.pedidos}</td>
+            <td style="font-weight:900;">${c.burgers}</td>
+            <td style="font-weight:900;">$${c.total.toLocaleString()}</td>
+            <td>$${ticket.toLocaleString()}</td>
+            <td><button class="qty-btn" style="font-size:0.7rem; padding:5px 10px;" onclick="openCustomerProfile('${uid}','${c.nombre.replace(/'/g, "\\'")}','${c.whatsapp}','${c.email}')">VER</button></td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">Sin datos de clientes</td></tr>';
 }
 
 // ── CUSTOMER PROFILE MODAL ──
@@ -1336,17 +1384,31 @@ window.openCustomerProfile = async function (userId, nombre, whatsapp, email) {
     const burgersReset = document.getElementById('profile-burgers');
     if (burgersReset) burgersReset.innerHTML = '';
 
-    if (!client || !userId || userId === 'null') {
-        document.getElementById('profile-stats').innerHTML = '<div style="color:#999; grid-column:1/-1;">Sin user_id asociado.</div>';
+    if (!client || !userId || userId === 'null' || userId === 'undefined') {
+        document.getElementById('profile-stats').innerHTML = '<div style="color:#999; grid-column:1/-1;">Sin cliente asociado.</div>';
         return;
     }
 
     try {
-        const { data: pedidos, error } = await client
+        // Intentar buscar por user_id primero, si no hay resultados buscar por cliente_id
+        let { data: pedidos, error } = await client
             .from('pedidos')
             .select('*')
             .eq('user_id', userId)
             .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        // Si no encontró por user_id, buscar por cliente_id
+        if (!pedidos || pedidos.length === 0) {
+            const res2 = await client
+                .from('pedidos')
+                .select('*')
+                .eq('cliente_id', userId)
+                .order('created_at', { ascending: false });
+            if (res2.error) throw res2.error;
+            pedidos = res2.data || [];
+        }
 
         if (error) throw error;
 

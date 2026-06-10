@@ -1205,29 +1205,37 @@
                 </div>
             </div>
 
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <h3>Ventas Totales</h3>
-                    <div class="value" id="stats-total-sales">$0</div>
-                </div>
+            <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
                 <div class="stat-card">
                     <h3>Pedidos</h3>
                     <div class="value" id="stats-orders-count">0</div>
+                    <div style="font-size:0.72rem; color:#999; margin-top:4px;" id="stats-orders-sub">—</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Burgers Vendidas</h3>
+                    <div class="value" id="stats-burgers-count">0</div>
+                    <div style="font-size:0.72rem; color:#999; margin-top:4px;" id="stats-burgers-sub">—</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Facturado</h3>
+                    <div class="value" id="stats-total-sales">$0</div>
+                    <div style="font-size:0.72rem; color:#999; margin-top:4px;" id="stats-sales-sub">—</div>
                 </div>
                 <div class="stat-card">
                     <h3>Ticket Promedio</h3>
                     <div class="value" id="stats-avg-ticket">$0</div>
+                    <div style="font-size:0.72rem; color:#999; margin-top:4px;" id="stats-ticket-sub">—</div>
                 </div>
             </div>
 
             <div class="stats-grid dashboard-bottom-grid" style="grid-template-columns: 1fr 1fr; margin-top: 0;">
                 <div class="stat-card" style="min-height: 320px;">
-                    <h3 style="font-family:'Archivo Black';">Últimas Ventas</h3>
-                    <div id="recent-sales-log" style="font-size:0.88rem; margin-top:0.8rem;">Cargando...</div>
-                </div>
-                <div class="stat-card" style="min-height: 320px;">
                     <h3 style="font-family:'Archivo Black';">Ranking Burgers</h3>
                     <div id="best-sellers-list" style="margin-top:0.8rem;">Cargando...</div>
+                </div>
+                <div class="stat-card" style="min-height: 320px;">
+                    <h3 style="font-family:'Archivo Black';">Últimas Ventas</h3>
+                    <div id="recent-sales-log" style="font-size:0.88rem; margin-top:0.8rem;">Cargando...</div>
                 </div>
             </div>
 
