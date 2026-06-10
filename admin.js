@@ -728,67 +728,131 @@ window.showKanbanTab = function (estado, btn) {
     btn.style.color = 'white';
 };
 
-window.advanceOrder = async function (id, currentState) {
-    const next = {
-        pendiente: 'aprobado',
-        pendiente_efectivo: 'aprobado',
-        pendiente_transferencia: 'aprobado',
-        aprobado: 'preparacion',
-        preparacion: 'entregado'
-    };
-    if (!next[currentState]) return;
+window.advanceOrder = async function (id, _uiState) {
     try {
-        const { error } = await client.from('pedidos').update({ estado_pago: next[currentState] }).eq('id', id);
+        // SIEMPRE leer estado real de la DB (no confiar en el parámetro de la UI)
+        const { data: orderCheck } = await client.from('pedidos').select('estado_pago, stock_descontado').eq('id', id).single();
+        if (!orderCheck) return;
+
+        const actualState = orderCheck.estado_pago;
+        const next = {
+            pendiente: 'aprobado',
+            pendiente_efectivo: 'aprobado',
+            pendiente_transferencia: 'aprobado',
+            aprobado: 'preparacion',
+            preparacion: 'entregado'
+        };
+
+        const nextState = next[actualState];
+        if (!nextState) return;
+
+        // Actualizar estado
+        const { error } = await client.from('pedidos').update({ estado_pago: nextState }).eq('id', id);
         if (error) throw error;
-        // Descontar stock al confirmar pago (cualquier estado pendiente → aprobado)
-        const isPending = currentState === 'pendiente' || currentState === 'pendiente_efectivo' || currentState === 'pendiente_transferencia';
-        if (isPending) {
+
+        // Descontar stock SOLO si: viene de pendiente Y no se descontó antes
+        const isPending = actualState === 'pendiente' || actualState === 'pendiente_efectivo' || actualState === 'pendiente_transferencia';
+        if (isPending && !orderCheck.stock_descontado) {
             await deductOrderStock(id);
+            // Marcar como descontado para evitar doble deducción
+            await client.from('pedidos').update({ stock_descontado: true }).eq('id', id);
+            showStatusToast('PAGO CONFIRMADO — STOCK DESCONTADO');
+        } else {
+            showStatusToast(`Pedido movido a ${nextState.toUpperCase()}`);
         }
+
         loadOrders();
         if (document.getElementById('stock-section')?.classList.contains('active')) loadStockData();
-    } catch (err) { showStatusToast("Error al actualizar pedido"); }
+    } catch (err) {
+        console.error("Error advancing order:", err);
+        showStatusToast("Error al actualizar pedido");
+    }
 };
 
 async function deductOrderStock(orderId) {
     try {
         const { data: order } = await client.from('pedidos').select('items').eq('id', orderId).single();
-        if (!order || !order.items) return;
+        if (!order || !order.items) { console.warn("deductOrderStock: no items found for order", orderId); return; }
+
+        console.log("Deducting stock for order:", orderId, "Items:", JSON.stringify(order.items));
+
+        // Acumular todas las deducciones en un mapa antes de aplicarlas
+        // Esto evita problemas si varios items usan el mismo insumo
+        const insumoDeductions = {}; // { insumo_id: totalToDeduct }
+        const productoDeductions = {}; // { producto_id: totalToDeduct }
 
         for (const item of order.items) {
             if (!item.product_id) continue;
+            const qty = parseInt(item.qty) || 1;
+
             const { data: producto } = await client.from('productos').select('receta, stock').eq('id', item.product_id).single();
-            if (!producto) continue;
+            if (!producto) { console.warn("Product not found:", item.product_id); continue; }
 
             if (producto.receta && producto.receta.ingredientes && producto.receta.ingredientes.length > 0) {
-                // Producto con receta: descontar ingredientes
+                // Producto con receta: calcular deducciones por ingrediente
                 for (const ri of producto.receta.ingredientes) {
-                    const deductAmount = ri.cantidad * item.qty;
-                    const { data: ing } = await client.from('insumos').select('stock_actual').eq('id', ri.ingrediente_id).single();
-                    if (ing) {
-                        await client.from('insumos').update({
-                            stock_actual: Math.max(0, ing.stock_actual - deductAmount)
-                        }).eq('id', ri.ingrediente_id);
+                    const baseQty = parseFloat(ri.cantidad) || 0;
+
+                    // Si el ingrediente tiene doble_mult y el item es Doble, multiplicar
+                    let typeFactor = 1;
+                    if (item.type === 'Doble' && ri.doble_mult) {
+                        typeFactor = parseFloat(ri.doble_mult);
                     }
+
+                    const deductAmount = baseQty * typeFactor * qty;
+
+                    console.log(`  → ${ri.nombre}: base=${baseQty} × typeFactor=${typeFactor} × qty=${qty} = ${deductAmount}`);
+
+                    const ingId = String(ri.ingrediente_id);
+                    insumoDeductions[ingId] = (insumoDeductions[ingId] || 0) + deductAmount;
                 }
             } else if (producto.stock !== null && producto.stock !== undefined) {
                 // Producto sin receta (extras): descontar stock del producto
-                await client.from('productos').update({
-                    stock: Math.max(0, producto.stock - item.qty)
-                }).eq('id', item.product_id);
+                const prodId = String(item.product_id);
+                productoDeductions[prodId] = (productoDeductions[prodId] || 0) + qty;
             }
         }
-        showStatusToast('STOCK DESCONTADO');
+
+        // Aplicar deducciones a insumos (una sola operación por insumo)
+        for (const [insumoId, totalDeduct] of Object.entries(insumoDeductions)) {
+            const { data: ing } = await client.from('insumos').select('stock_actual').eq('id', insumoId).single();
+            if (ing) {
+                const newStock = Math.max(0, ing.stock_actual - totalDeduct);
+                console.log(`  INSUMO ${insumoId}: ${ing.stock_actual} - ${totalDeduct} = ${newStock}`);
+                await client.from('insumos').update({ stock_actual: newStock }).eq('id', insumoId);
+            }
+        }
+
+        // Aplicar deducciones a productos sin receta
+        for (const [prodId, totalDeduct] of Object.entries(productoDeductions)) {
+            const { data: prod } = await client.from('productos').select('stock').eq('id', prodId).single();
+            if (prod) {
+                const newStock = Math.max(0, prod.stock - totalDeduct);
+                console.log(`  PRODUCTO ${prodId}: ${prod.stock} - ${totalDeduct} = ${newStock}`);
+                await client.from('productos').update({ stock: newStock }).eq('id', prodId);
+            }
+        }
+
+        console.log("Stock deduction complete for order:", orderId);
     } catch (e) { console.error("Error deducting stock:", e); }
 }
 
-window.retreatOrder = async function (id, currentState) {
-    const prev = { aprobado: 'pendiente', preparacion: 'aprobado', entregado: 'preparacion' };
-    if (!prev[currentState]) return;
+window.retreatOrder = async function (id, _uiState) {
     try {
-        const { error } = await client.from('pedidos').update({ estado_pago: prev[currentState] }).eq('id', id);
+        // Leer estado real de la DB
+        const { data: orderCheck } = await client.from('pedidos').select('estado_pago').eq('id', id).single();
+        if (!orderCheck) return;
+
+        const prev = { aprobado: 'pendiente', preparacion: 'aprobado', entregado: 'preparacion' };
+        const prevState = prev[orderCheck.estado_pago];
+        if (!prevState) return;
+
+        // Retroceder estado. NOTA: stock_descontado se mantiene en true
+        // para evitar doble deducción si lo vuelven a avanzar
+        const { error } = await client.from('pedidos').update({ estado_pago: prevState }).eq('id', id);
         if (error) throw error;
         loadOrders();
+        showStatusToast(`Pedido retrocedido a ${prevState.toUpperCase()}`);
     } catch (err) { showStatusToast("Error al actualizar pedido"); }
 };
 
