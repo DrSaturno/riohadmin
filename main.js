@@ -150,6 +150,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadActivePromos();
     fetchMasterStatus();
     fetchStoreHours();
+    subscribeToStoreStatus();
+    subscribeToStoreHours();
     initScrollButtons();
 
     // Initial status check
@@ -184,6 +186,38 @@ async function fetchMasterStatus() {
             }
         }
     } catch (e) { console.error("Error fetching master status:", e); }
+}
+
+function subscribeToStoreStatus() {
+    if (!supabaseClient) return;
+    supabaseClient
+        .from('configuracion')
+        .on('*', payload => {
+            if (payload.new && payload.new.id === 'ventas_web' && payload.new.valor) {
+                const newValue = payload.new.valor.online;
+                if (isMasterOnline !== newValue) {
+                    isMasterOnline = newValue;
+                    renderMenu(menuData);
+                    console.log('Store status updated via Realtime:', newValue ? 'OPEN' : 'CLOSED');
+                }
+            }
+        })
+        .subscribe();
+}
+
+function subscribeToStoreHours() {
+    if (!supabaseClient) return;
+    supabaseClient
+        .from('configuracion')
+        .on('*', payload => {
+            if (payload.new && payload.new.id === 'horarios_atencion' && payload.new.valor) {
+                storeHoursConfig = payload.new.valor;
+                renderMenu(menuData);
+                updateFooterHours();
+                console.log('Store hours updated via Realtime:', storeHoursConfig);
+            }
+        })
+        .subscribe();
 }
 
 function showDemoBanner() {
