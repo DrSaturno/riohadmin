@@ -1220,6 +1220,11 @@ window.applyCustomFilter = function () {
 async function loadDashboard() {
     if (!client) return;
     try {
+        // Precargar productos para obtener imágenes del ranking
+        const { data: productosData } = await client.from('productos').select('id, nombre, imagen_url');
+        const productoImgMap = {};
+        (productosData || []).forEach(p => { productoImgMap[p.nombre] = p.imagen_url || 'burger1.png'; });
+
         // Query pedidos WITH client data, filtered by date
         let query = client.from('pedidos').select('*, clientes(id, user_id, nombre, whatsapp, email)').order('created_at', { ascending: false });
         let startDate, labelSuffix = 'Hoy';
@@ -1286,14 +1291,17 @@ async function loadDashboard() {
         document.getElementById('stats-avg-ticket').innerText = `$${avgTicket.toLocaleString()}`;
         document.getElementById('stats-ticket-sub').innerText = totalPedidos > 0 ? `sobre ${totalPedidos} pedidos` : '—';
 
-        // ── Ranking Burgers (todos los items) ──
+        // ── Ranking Burgers con imágenes ──
         const sorted = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
-        document.getElementById('best-sellers-list').innerHTML = sorted.map(([name, qty], i) => `
-            <div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee; ${i === 0 ? 'background:#FFF9C4; border:1px solid #FBC02D;' : ''}">
-                <span>${i + 1}. ${name}</span>
-                <span style="font-weight:900;">${qty} U.</span>
-            </div>
-        `).join('') || '<div style="color:#999; padding:20px;">SIN DATOS</div>';
+        document.getElementById('best-sellers-list').innerHTML = sorted.map(([name, qty], i) => {
+            const img = productoImgMap[name] || 'burger1.png';
+            const highlight = i === 0 ? 'background:#FFF9C4; border:1px solid #FBC02D;' : '';
+            return `<div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid #eee; ${highlight}">
+                <img src="${img}" alt="${name}" style="width:40px; height:40px; border-radius:50%; object-fit:cover; border:2px solid #111; flex-shrink:0;">
+                <span style="flex:1;">${i + 1}. ${name}</span>
+                <span style="font-weight:900; font-family:'Archivo Black'; white-space:nowrap;">${qty} U.</span>
+            </div>`;
+        }).join('') || '<div style="color:#999; padding:20px;">SIN DATOS</div>';
 
         // ── Últimas Ventas ──
         document.getElementById('recent-sales-log').innerHTML = pedidos.slice(0, 10).map(p => {
@@ -1360,7 +1368,7 @@ function renderCustomerRanking(pedidos) {
     tbody.innerHTML = ranked.map((c, i) => {
         const ticket = c.pedidos > 0 ? Math.round(c.total / c.pedidos) : 0;
         const top = i === 0 ? 'background:#FFF9C4;' : '';
-        const uid = c.user_id || c.id || '';
+        const cid = c.id || '';
         return `<tr style="${top}">
             <td style="font-family:'Archivo Black';">${i + 1}</td>
             <td style="font-weight:700;">${c.nombre}</td>
@@ -1368,7 +1376,7 @@ function renderCustomerRanking(pedidos) {
             <td style="font-weight:900;">${c.burgers}</td>
             <td style="font-weight:900;">$${c.total.toLocaleString()}</td>
             <td>$${ticket.toLocaleString()}</td>
-            <td><button class="qty-btn" style="font-size:0.7rem; padding:5px 10px;" onclick="openCustomerProfile('${uid}','${c.nombre.replace(/'/g, "\\'")}','${c.whatsapp}','${c.email}')">VER</button></td>
+            <td><button class="qty-btn" style="font-size:0.7rem; padding:5px 10px;" onclick="openCustomerProfile('${cid}','${c.nombre.replace(/'/g, "\\'")}','${c.whatsapp}','${c.email}')">VER</button></td>
         </tr>`;
     }).join('') || '<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">Sin datos de clientes</td></tr>';
 }
@@ -1390,21 +1398,21 @@ window.openCustomerProfile = async function (userId, nombre, whatsapp, email) {
     }
 
     try {
-        // Intentar buscar por user_id primero, si no hay resultados buscar por cliente_id
+        // Buscar por cliente_id primero (es el FK real en pedidos)
         let { data: pedidos, error } = await client
             .from('pedidos')
             .select('*')
-            .eq('user_id', userId)
+            .eq('cliente_id', userId)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
 
-        // Si no encontró por user_id, buscar por cliente_id
+        // Si no encontró por cliente_id, intentar por user_id
         if (!pedidos || pedidos.length === 0) {
             const res2 = await client
                 .from('pedidos')
                 .select('*')
-                .eq('cliente_id', userId)
+                .eq('user_id', userId)
                 .order('created_at', { ascending: false });
             if (res2.error) throw res2.error;
             pedidos = res2.data || [];
@@ -1720,22 +1728,67 @@ let allCRMClients = [];
 async function loadCRMData() {
     if (!client) return;
     try {
-        // Load all clients
-        const { data: clientes, error } = await client
-            .from('clientes')
-            .select('*')
-            .order('created_at', { ascending: false });
-        if (error) throw error;
-        allCRMClients = clientes || [];
+        // Cargar clientes Y todos los pedidos para computar datos reales
+        const [clientesRes, pedidosRes] = await Promise.all([
+            client.from('clientes').select('*').order('created_at', { ascending: false }),
+            client.from('pedidos').select('id, cliente_id, user_id, total, items, created_at')
+        ]);
 
-        // Calculate stats
+        if (clientesRes.error) throw clientesRes.error;
+        const clientes = clientesRes.data || [];
+        const pedidos = pedidosRes.data || [];
+
+        // Agrupar pedidos por cliente_id
+        const pedidosByClient = {};
+        pedidos.forEach(p => {
+            const key = p.cliente_id || p.user_id;
+            if (!key) return;
+            if (!pedidosByClient[key]) pedidosByClient[key] = [];
+            pedidosByClient[key].push(p);
+        });
+
+        // Enriquecer cada cliente con datos computados
+        allCRMClients = clientes.map(c => {
+            const clientPedidos = pedidosByClient[c.id] || pedidosByClient[c.user_id] || [];
+            const totalGastado = clientPedidos.reduce((a, p) => a + (p.total || 0), 0);
+            const pedidosCount = clientPedidos.length;
+
+            // Burger favorita
+            const burgerCounts = {};
+            let lastOrderDate = null;
+            clientPedidos.forEach(p => {
+                if (p.created_at) {
+                    const d = new Date(p.created_at);
+                    if (!lastOrderDate || d > lastOrderDate) lastOrderDate = d;
+                }
+                (p.items || []).forEach(i => {
+                    const t = (i.type || '').toLowerCase();
+                    if (t === 'simple' || t === 'doble') {
+                        burgerCounts[i.title] = (burgerCounts[i.title] || 0) + (parseInt(i.qty) || 1);
+                    }
+                });
+            });
+            const favBurger = Object.entries(burgerCounts).sort((a, b) => b[1] - a[1])[0];
+
+            return {
+                ...c,
+                _pedidos: pedidosCount,
+                _total: totalGastado,
+                _ticket: pedidosCount > 0 ? Math.round(totalGastado / pedidosCount) : 0,
+                _lastOrder: lastOrderDate,
+                _favBurger: favBurger ? favBurger[0] : null,
+                _favBurgerQty: favBurger ? favBurger[1] : 0,
+                _burgerNames: Object.keys(burgerCounts)
+            };
+        });
+
+        // Stats cards
         const total = allCRMClients.length;
-        const withOrders = allCRMClients.filter(c => (c.pedidos_count || 0) > 0).length;
-        const totalGastado = allCRMClients.reduce((a, c) => a + (c.total_gastado || 0), 0);
-        const totalPedidos = allCRMClients.reduce((a, c) => a + (c.pedidos_count || 0), 0);
-        const avgTicket = totalPedidos > 0 ? Math.round(totalGastado / totalPedidos) : 0;
+        const withOrders = allCRMClients.filter(c => c._pedidos > 0).length;
+        const totalGastadoAll = allCRMClients.reduce((a, c) => a + c._total, 0);
+        const totalPedidosAll = allCRMClients.reduce((a, c) => a + c._pedidos, 0);
+        const avgTicket = totalPedidosAll > 0 ? Math.round(totalGastadoAll / totalPedidosAll) : 0;
 
-        // New in last 30 days
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const newClients = allCRMClients.filter(c => c.created_at && new Date(c.created_at) >= thirtyDaysAgo).length;
@@ -1745,10 +1798,18 @@ async function loadCRMData() {
         document.getElementById('crm-avg-ticket').textContent = `$${avgTicket.toLocaleString()}`;
         document.getElementById('crm-new-30d').textContent = newClients;
 
-        // Sort by total_gastado descending for table display
-        const sorted = [...allCRMClients].sort((a, b) => (b.total_gastado || 0) - (a.total_gastado || 0));
-        renderCRMTable(sorted);
+        // Poblar filtro de burgers
+        const allBurgerNames = new Set();
+        allCRMClients.forEach(c => (c._burgerNames || []).forEach(b => allBurgerNames.add(b)));
+        const burgerSelect = document.getElementById('crm-filter-burger');
+        if (burgerSelect) {
+            const current = burgerSelect.value;
+            burgerSelect.innerHTML = '<option value="">Todas las burgers</option>' +
+                [...allBurgerNames].sort().map(b => `<option value="${b}">${b}</option>`).join('');
+            burgerSelect.value = current;
+        }
 
+        filterCRMTable();
     } catch (err) {
         console.error("CRM Load Error:", err);
         showStatusToast("Error cargando CRM");
@@ -1760,26 +1821,32 @@ function renderCRMTable(clientes) {
     if (!tbody) return;
 
     if (!clientes.length) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">Sin clientes registrados</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:20px; color:#999;">Sin clientes registrados</td></tr>';
         return;
     }
 
     tbody.innerHTML = clientes.map((c, i) => {
-        const lastOrder = c.ultima_compra
-            ? new Date(c.ultima_compra).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        const lastOrder = c._lastOrder
+            ? c._lastOrder.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+            : '—';
+        const alta = c.created_at
+            ? new Date(c.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
             : '—';
         const nombre = c.nombre || 'S/N';
         const safeNombre = nombre.replace(/'/g, "\\'");
+        const cid = c.id || '';
         return `<tr>
             <td style="font-family:'Archivo Black'; text-align:center;">${i + 1}</td>
             <td style="font-weight:700;">${nombre}</td>
             <td>${c.whatsapp || '—'}</td>
             <td style="font-size:0.82rem;">${c.email || '—'}</td>
-            <td style="font-weight:900; text-align:center;">${c.pedidos_count || 0}</td>
-            <td style="font-weight:900; font-family:'Archivo Black';">$${(c.total_gastado || 0).toLocaleString()}</td>
+            <td style="font-weight:900; text-align:center;">${c._pedidos}</td>
+            <td style="font-weight:900; font-family:'Archivo Black';">$${c._total.toLocaleString()}</td>
+            <td style="font-size:0.78rem;">${c._favBurger ? `🍔 ${c._favBurger}` : '—'}</td>
+            <td style="font-size:0.78rem;">${alta}</td>
             <td style="font-size:0.82rem;">${lastOrder}</td>
             <td>
-                <button class="qty-btn" style="font-size:0.7rem; padding:6px 14px;" onclick="openCustomerProfile('${c.user_id}','${safeNombre}','${c.whatsapp || ''}','${c.email || ''}')">
+                <button class="qty-btn" style="font-size:0.7rem; padding:6px 14px;" onclick="openCustomerProfile('${cid}','${safeNombre}','${c.whatsapp || ''}','${c.email || ''}')">
                     <i data-lucide="eye" style="width:14px; height:14px; vertical-align:middle;"></i> VER
                 </button>
             </td>
@@ -1791,17 +1858,47 @@ function renderCRMTable(clientes) {
 
 window.filterCRMTable = function () {
     const query = (document.getElementById('crm-search')?.value || '').toLowerCase().trim();
-    if (!query) {
-        const sorted = [...allCRMClients].sort((a, b) => (b.total_gastado || 0) - (a.total_gastado || 0));
-        renderCRMTable(sorted);
-        return;
-    }
-    const filtered = allCRMClients
-        .filter(c =>
+    const burgerFilter = document.getElementById('crm-filter-burger')?.value || '';
+    const pedidosMin = parseInt(document.getElementById('crm-filter-pedidos')?.value) || 0;
+    const gastoMin = parseInt(document.getElementById('crm-filter-gasto')?.value) || 0;
+    const sortBy = document.getElementById('crm-sort')?.value || 'total';
+
+    let filtered = [...allCRMClients];
+
+    // Filtro texto
+    if (query) {
+        filtered = filtered.filter(c =>
             (c.nombre || '').toLowerCase().includes(query) ||
             (c.email || '').toLowerCase().includes(query) ||
             (c.whatsapp || '').includes(query)
-        )
-        .sort((a, b) => (b.total_gastado || 0) - (a.total_gastado || 0));
+        );
+    }
+
+    // Filtro burger favorita
+    if (burgerFilter) {
+        filtered = filtered.filter(c => (c._burgerNames || []).includes(burgerFilter));
+    }
+
+    // Filtro pedidos mínimos
+    if (pedidosMin > 0) {
+        filtered = filtered.filter(c => c._pedidos >= pedidosMin);
+    }
+
+    // Filtro gasto mínimo
+    if (gastoMin > 0) {
+        filtered = filtered.filter(c => c._total >= gastoMin);
+    }
+
+    // Ordenar
+    if (sortBy === 'total') {
+        filtered.sort((a, b) => b._total - a._total);
+    } else if (sortBy === 'pedidos') {
+        filtered.sort((a, b) => b._pedidos - a._pedidos);
+    } else if (sortBy === 'reciente') {
+        filtered.sort((a, b) => (b._lastOrder || 0) - (a._lastOrder || 0));
+    } else if (sortBy === 'alta') {
+        filtered.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    }
+
     renderCRMTable(filtered);
 };

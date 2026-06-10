@@ -1512,7 +1512,7 @@
                 </div>
             </header>
 
-            <div class="stats-grid" style="margin-bottom:1.5rem;">
+            <div class="stats-grid" style="margin-bottom:1.5rem; grid-template-columns: repeat(4, 1fr);">
                 <div class="stat-card">
                     <h3>Total Clientes</h3>
                     <div class="value" id="crm-total-clients">0</div>
@@ -1531,6 +1531,33 @@
                 </div>
             </div>
 
+            <!-- CRM FILTERS -->
+            <div style="display:flex; gap:8px; margin-bottom:1.2rem; flex-wrap:wrap; align-items:center;">
+                <select id="crm-filter-burger" onchange="filterCRMTable()" style="padding:8px 12px; border:2px solid #111; font-family:inherit; font-weight:700; font-size:0.78rem;">
+                    <option value="">Todas las burgers</option>
+                </select>
+                <select id="crm-filter-pedidos" onchange="filterCRMTable()" style="padding:8px 12px; border:2px solid #111; font-family:inherit; font-weight:700; font-size:0.78rem;">
+                    <option value="">Todos los pedidos</option>
+                    <option value="1">1+ pedido</option>
+                    <option value="3">3+ pedidos</option>
+                    <option value="5">5+ pedidos</option>
+                    <option value="10">10+ pedidos</option>
+                </select>
+                <select id="crm-filter-gasto" onchange="filterCRMTable()" style="padding:8px 12px; border:2px solid #111; font-family:inherit; font-weight:700; font-size:0.78rem;">
+                    <option value="">Todo el gasto</option>
+                    <option value="10000">$10.000+</option>
+                    <option value="50000">$50.000+</option>
+                    <option value="100000">$100.000+</option>
+                    <option value="500000">$500.000+</option>
+                </select>
+                <select id="crm-sort" onchange="filterCRMTable()" style="padding:8px 12px; border:2px solid #111; font-family:inherit; font-weight:700; font-size:0.78rem;">
+                    <option value="total">Ordenar: Mayor gasto</option>
+                    <option value="pedidos">Ordenar: Más pedidos</option>
+                    <option value="reciente">Ordenar: Más reciente</option>
+                    <option value="alta">Ordenar: Fecha de alta</option>
+                </select>
+            </div>
+
             <div class="table-scroll-wrap">
                 <table class="brutalist-table">
                     <thead>
@@ -1541,12 +1568,14 @@
                             <th>EMAIL</th>
                             <th>PEDIDOS</th>
                             <th>TOTAL GASTADO</th>
+                            <th>FAVORITA</th>
+                            <th>ALTA</th>
                             <th>ÚLTIMO PEDIDO</th>
                             <th></th>
                         </tr>
                     </thead>
                     <tbody id="crm-table-body">
-                        <tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">Cargando...</td></tr>
+                        <tr><td colspan="10" style="text-align:center; padding:20px; color:#999;">Cargando...</td></tr>
                     </tbody>
                 </table>
             </div>
