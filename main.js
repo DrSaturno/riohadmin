@@ -1247,7 +1247,7 @@ window.submitOrder = async function() {
             const custZona = currentDeliveryMethod === 'delivery' ? document.getElementById('shipping-zone').options[document.getElementById('shipping-zone').selectedIndex].text : null;
             let clientId = null;
 
-            // Try to find existing client: by user_id first, then by phone
+            // Try to find existing client: by user_id, then phone, then email
             let existingClient = null;
             if (currentUser) {
                 const { data } = await supabaseClient
@@ -1265,6 +1265,14 @@ window.submitOrder = async function() {
                     .maybeSingle();
                 existingClient = data;
             }
+            if (!existingClient && custEmail) {
+                const { data } = await supabaseClient
+                    .from('clientes')
+                    .select('id')
+                    .eq('email', custEmail)
+                    .maybeSingle();
+                existingClient = data;
+            }
 
             if (existingClient) {
                 console.log("Existing client found, using ID:", existingClient.id);
@@ -1274,7 +1282,8 @@ window.submitOrder = async function() {
                     nombre: custName,
                     whatsapp: phone,
                     email: custEmail,
-                    direccion: custAddress
+                    direccion: custAddress,
+                    user_id: currentUser ? currentUser.id : undefined
                 }).eq('id', clientId);
             } else {
                 console.log("New client, capturing data...");
