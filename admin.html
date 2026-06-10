@@ -237,6 +237,31 @@
             z-index: 300;
         }
 
+        /* ── STORE TOGGLE ── */
+        .store-toggle-wrap {
+            background: rgba(255,255,255,0.08);
+            border: 2px solid #333;
+            padding: 12px;
+            margin-bottom: 0.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .store-toggle-label {
+            font-size: 0.75rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .store-toggle-status {
+            font-size: 0.65rem;
+            font-weight: 700;
+            margin-top: 2px;
+        }
+        .store-toggle-status.online { color: #4CAF50; }
+        .store-toggle-status.offline { color: #FF5252; }
+
         /* ── MAIN CONTENT ── */
         .main-content {
             margin-left: var(--sidebar-w);
@@ -345,12 +370,15 @@
         .input-group { display: flex; flex-direction: column; gap: 8px; }
         .input-group label { font-weight: 900; font-size: 0.8rem; text-transform: uppercase; }
 
-        .input-group input, .input-group select {
+        .input-group input, .input-group select, .input-group textarea {
             padding: 12px;
             border: var(--border-width) solid var(--text-dark);
             font-weight: 700;
             font-family: inherit;
+            font-size: 0.9rem;
         }
+
+        .input-group textarea { resize: vertical; min-height: 60px; }
 
         .add-btn {
             background: var(--primary);
@@ -369,6 +397,7 @@
         .status-ok { background: #4CAF50; color: white; }
         .status-low { background: #FFC107; color: var(--text-dark); }
         .status-critical { background: var(--primary); color: white; }
+        .status-inactive { background: #999; color: white; }
 
         /* ── FILTER BAR ── */
         .filter-bar {
@@ -406,11 +435,10 @@
         .switch input { opacity: 0; width: 0; height: 0; }
         .slider { position: absolute; cursor: pointer; top:0; left:0; right:0; bottom:0; background:#444; transition:.4s; border-radius:34px; }
         .slider:before { position:absolute; content:""; height:18px; width:18px; left:4px; bottom:4px; background:white; transition:.4s; border-radius:50%; }
-        input:checked + .slider { background-color: var(--primary); }
+        input:checked + .slider { background-color: #4CAF50; }
         input:checked + .slider:before { transform: translateX(24px); }
 
         .sidebar-footer { margin-top: auto; border-top: 1px solid #333; padding-top: 1.5rem; }
-        .status-toggle-container { display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; margin-bottom:1rem; }
 
         /* ── KANBAN ── */
         .kanban-board {
@@ -458,9 +486,7 @@
         }
 
         .kanban-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem; }
-
         .kanban-items { margin: 5px 0; border-top: 1px dashed #ddd; padding-top: 5px; font-size: 0.78rem; }
-
         .kanban-total { text-align:right; font-family:'Archivo Black', sans-serif; font-size:1rem; margin-top:3px; }
 
         .kanban-advance-btn {
@@ -583,6 +609,7 @@
             z-index: 2000;
             overflow-y: auto;
             padding: 2rem 1rem;
+            -webkit-overflow-scrolling: touch;
         }
 
         .customer-modal-card {
@@ -649,6 +676,64 @@
             margin-bottom: 0.4rem;
         }
 
+        /* ── PRODUCT FORM ── */
+        .product-form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            align-items: start;
+        }
+        .product-form-grid .full-width { grid-column: 1 / -1; }
+
+        .product-img-preview {
+            width: 120px;
+            height: 120px;
+            border: var(--border-width) solid var(--text-dark);
+            object-fit: cover;
+            background: #eee;
+            display: block;
+            margin-top: 8px;
+        }
+
+        .product-table-img {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border: 2px solid var(--text-dark);
+        }
+
+        /* ── HOURS CONFIG ── */
+        .hours-config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 1.5rem;
+            align-items: end;
+        }
+        .days-checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .days-checkboxes label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            cursor: pointer;
+            background: white;
+            border: 2px solid #ddd;
+            padding: 6px 10px;
+            transition: all 0.2s;
+        }
+        .days-checkboxes label:has(input:checked) {
+            background: var(--text-dark);
+            color: white;
+            border-color: var(--text-dark);
+        }
+        .days-checkboxes input { display: none; }
+
         /* ── PRINT STYLES ── */
         @media print {
             .sidebar, .mobile-header, .filter-bar, .orders-header-controls,
@@ -661,88 +746,110 @@
            RESPONSIVE — MOBILE
         ══════════════════════════════════ */
         @media (max-width: 900px) {
-
-            /* Show mobile header */
+            body { overflow-x: hidden; display: block; }
             .mobile-header { display: flex; }
-
-            /* Hide desktop logo in sidebar */
             .admin-logo { display: none; }
 
-            /* Sidebar becomes full-screen drawer */
             .sidebar {
                 transform: translateX(-100%);
                 width: 280px;
                 padding-top: 1.5rem;
                 z-index: 600;
+                overflow-y: auto;
             }
-
-            .sidebar.open {
-                transform: translateX(0);
-            }
-
+            .sidebar.open { transform: translateX(0); }
             .sidebar-overlay.open { display: block; }
 
-            /* Main content reset */
             .main-content {
                 margin-left: 0;
-                padding: 1rem;
-                padding-top: calc(60px + 1rem);
+                padding: 0.9rem;
+                padding-top: calc(60px + 0.9rem);
+                overflow-x: hidden;
+                width: 100%;
             }
 
-            h1 { font-size: 1.6rem; }
+            h1 { font-size: 1.3rem; }
 
-            /* Stats grid single column */
-            .stats-grid {
-                grid-template-columns: 1fr 1fr;
-                gap: 1rem;
+            header {
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-bottom: 1rem;
             }
+            .orders-header-controls { width: 100%; justify-content: flex-start; }
+            .dashboard-export-btns { width: 100%; justify-content: flex-start !important; }
+            .dashboard-export-btns .refresh-btn { font-size: 0.72rem; padding: 6px 10px; }
+            .dashboard-export-btns .qty-btn { padding: 6px 10px; }
 
-            /* Kanban: tab-based on mobile */
+            .stats-grid { grid-template-columns: 1fr 1fr; gap: 0.7rem; margin-bottom: 1.2rem; }
+            .stat-card { padding: 1rem; box-shadow: 4px 4px 0 var(--text-dark); }
+            .stat-card .value { font-size: 1.5rem; }
+
+            .dashboard-bottom-grid { grid-template-columns: 1fr !important; gap: 0.7rem !important; }
+            .dashboard-bottom-grid .stat-card { min-height: auto !important; }
+
             .kanban-mobile-tabs { display: flex; }
             .kanban-board { grid-template-columns: 1fr; }
             .kanban-col { display: none; }
             .kanban-col.mob-active { display: block; }
 
-            /* Forms stack vertically */
-            .stock-form {
-                grid-template-columns: 1fr;
-            }
+            .stock-form { grid-template-columns: 1fr; gap: 0.8rem; }
+            .product-form-grid { grid-template-columns: 1fr; }
+            .hours-config-grid { grid-template-columns: 1fr; }
+            .stock-control-panel { padding: 1rem; margin-bottom: 1.2rem; box-shadow: 4px 4px 0 var(--primary); }
+            .stock-control-panel h2 { font-size: 1rem !important; }
+            #m-fields-multi { flex-direction: column !important; gap: 0.5rem !important; }
 
-            /* Filter bar scrollable */
             .filter-bar {
                 overflow-x: auto;
                 flex-wrap: nowrap;
-                padding-bottom: 4px;
+                padding-bottom: 6px;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                margin-bottom: 1rem;
             }
+            .filter-bar::-webkit-scrollbar { display: none; }
+            .filter-btn { white-space: nowrap; flex-shrink: 0; font-size: 0.72rem; padding: 7px 11px; }
 
-            /* Dashboard bottom grid */
-            .dashboard-bottom-grid {
-                grid-template-columns: 1fr !important;
-            }
-
-            /* Table wraps */
             .table-scroll-wrap {
-                margin: 0 -1rem;
-                padding: 0 1rem;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                max-width: 100%;
+                scrollbar-width: thin;
             }
+            .brutalist-table { box-shadow: none; }
+            .brutalist-table th,
+            .brutalist-table td { padding: 0.6rem 0.8rem; font-size: 0.78rem; white-space: nowrap; }
 
-            /* Header layout */
-            header {
-                flex-wrap: wrap;
-                gap: 10px;
-                margin-bottom: 1.2rem;
+            .ranking-table-wrap { margin-top: 0.8rem; box-shadow: 4px 4px 0 var(--text-dark); }
+
+            #customer-modal { padding: 0; align-items: flex-start; }
+            .customer-modal-card {
+                min-height: 100dvh;
+                margin: 0;
+                border-left: none;
+                border-right: none;
+                box-shadow: none;
+                max-width: 100%;
             }
-
-            .orders-header-controls { width: 100%; justify-content: flex-start; }
+            .customer-modal-body { padding: 1rem; }
+            .profile-stats { gap: 0.4rem; }
+            .profile-stat { padding: 0.5rem 0.3rem; }
+            .profile-stat .ps-value { font-size: 0.95rem; }
+            .profile-stat .ps-label { font-size: 0.58rem; }
 
             .login-card { padding: 2rem 1.5rem; }
             .login-logo { font-size: 2.5rem; }
+
+            .kmt-btn { font-size: 0.6rem; padding: 7px 3px; }
         }
 
         @media (max-width: 480px) {
-            .stats-grid { grid-template-columns: 1fr; }
-            .stat-card { padding: 1.2rem; }
-            .stat-card .value { font-size: 1.4rem; }
+            .stats-grid { grid-template-columns: 1fr; gap: 0.6rem; }
+            h1 { font-size: 1.1rem; }
+            .stat-card .value { font-size: 1.3rem; }
+            .refresh-btn { font-size: 0.68rem; padding: 5px 8px; }
+            .auto-refresh-badge { display: none; }
+            .kanban-col-header { font-size: 0.65rem; padding: 0.6rem 0.8rem; }
         }
     </style>
 </head>
@@ -780,7 +887,6 @@
         </button>
     </div>
 
-    <!-- Sidebar overlay (mobile) -->
     <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileMenu()"></div>
 
     <!-- ── SIDEBAR ── -->
@@ -798,7 +904,12 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link nav-link-disabled">
+                <a class="nav-link" onclick="showSection(event, 'productos')">
+                    <i data-lucide="beef"></i> PRODUCTOS
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" onclick="showSection(event, 'stock')">
                     <i data-lucide="package"></i> GESTIÓN STOCK
                 </a>
             </li>
@@ -807,20 +918,27 @@
                     <i data-lucide="megaphone"></i> MARKETING Y OFERTAS
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link" onclick="showSection(event, 'configuracion')">
+                    <i data-lucide="settings"></i> CONFIGURACIÓN
+                </a>
+            </li>
         </ul>
         <div class="sidebar-footer">
-            <a href="index.html" class="nav-link" target="_blank" style="border-color: var(--primary); margin-bottom:0.5rem;">
+            <!-- Store ON/OFF Toggle -->
+            <div class="store-toggle-wrap">
+                <div>
+                    <div class="store-toggle-label">TIENDA WEB</div>
+                    <div class="store-toggle-status offline" id="store-status-label">CARGANDO...</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="store-toggle" onchange="toggleStoreStatus()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <a href="/" class="nav-link" target="_blank" style="border-color: var(--primary); margin-bottom:0.5rem;">
                 <i data-lucide="external-link"></i> VER WEB
             </a>
-            <button id="demo-mode-btn" onclick="toggleDemoMode()" style="
-                width: 100%; padding: 12px 14px;
-                background: var(--primary); border: var(--border-width) solid white;
-                color: white; font-family: 'Archivo Black', sans-serif;
-                font-size: 0.8rem; cursor: pointer;
-                text-align: center; letter-spacing: 0.06em;
-                box-shadow: 4px 4px 0px rgba(255,255,255,0.3);
-                transition: all 0.2s;
-            ">⚡ MODO DEMO: OFF</button>
             <a class="nav-link" style="color:#666; margin-top:0.5rem; cursor:pointer; font-size:0.8rem;" onclick="doLogout()">
                 <i data-lucide="log-out"></i> SALIR
             </a>
@@ -836,7 +954,7 @@
                 <h1>Pedidos</h1>
                 <div class="orders-header-controls">
                     <span class="auto-refresh-badge">AUTO ⟳ 30s</span>
-<button class="refresh-btn" onclick="manualRefreshOrders()">
+                    <button class="refresh-btn" onclick="manualRefreshOrders()">
                         <i data-lucide="refresh-cw" style="width:14px;"></i> REFRESCAR
                     </button>
                 </div>
@@ -856,7 +974,6 @@
                 </div>
             </div>
 
-            <!-- Mobile tab selector -->
             <div class="kanban-mobile-tabs" id="kanban-tabs">
                 <button class="kmt-btn active" id="kmt-pendiente" style="background:#BF360C;" onclick="showKanbanTab('pendiente',this)">NUEVOS<br><span id="mtab-pendiente">0</span></button>
                 <button class="kmt-btn" id="kmt-aprobado" onclick="showKanbanTab('aprobado',this)" style="background:#eee; color:#333;">PAGO OK<br><span id="mtab-aprobado">0</span></button>
@@ -911,7 +1028,7 @@
         <section id="dashboard-section" class="admin-section">
             <header>
                 <h1>Dashboard</h1>
-                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <div class="dashboard-export-btns" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                     <button class="refresh-btn" onclick="exportToWhatsApp()" style="background:#25D366; color:white; border-color:#1da851;">
                         <i data-lucide="message-circle" style="width:14px;"></i> WHATSAPP
                     </button>
@@ -981,14 +1098,105 @@
                             </tr>
                         </thead>
                         <tbody id="customer-ranking-body">
-                            <tr><td colspan="5" style="text-align:center; padding:20px; color:#999;">Cargando...</td></tr>
+                            <tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">Cargando...</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         </section>
 
-        <!-- STOCK (deshabilitado desde nav) -->
+        <!-- PRODUCTOS CRUD -->
+        <section id="productos-section" class="admin-section">
+            <header>
+                <h1>Productos</h1>
+                <button class="refresh-btn" onclick="loadProductos()">
+                    <i data-lucide="refresh-cw" style="width:14px;"></i> REFRESCAR
+                </button>
+            </header>
+
+            <div class="stock-control-panel">
+                <h2 id="product-form-title" style="margin-bottom:1.5rem; font-family:'Archivo Black'; font-size:1.2rem;">NUEVO PRODUCTO</h2>
+                <form id="product-form" onsubmit="handleProductSubmit(event)">
+                    <div class="product-form-grid">
+                        <div class="input-group">
+                            <label>Nombre</label>
+                            <input type="text" id="prod-nombre" required placeholder="Ej: Cheddar Soul">
+                        </div>
+                        <div class="input-group">
+                            <label>Categoría</label>
+                            <select id="prod-categoria" required onchange="toggleDoblePrice()">
+                                <option value="burgers">BURGERS</option>
+                                <option value="extras">EXTRAS</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Precio Simple</label>
+                            <input type="number" id="prod-precio-simple" required placeholder="8500">
+                        </div>
+                        <div class="input-group" id="prod-doble-wrap">
+                            <label>Precio Doble</label>
+                            <input type="number" id="prod-precio-doble" placeholder="11500">
+                        </div>
+                        <div class="input-group">
+                            <label>Stock / Cantidad</label>
+                            <input type="number" id="prod-stock" placeholder="50" value="0">
+                        </div>
+                        <div class="input-group">
+                            <label>Imagen</label>
+                            <input type="file" id="prod-imagen" accept="image/*">
+                            <img id="prod-img-preview" class="product-img-preview" style="display:none" alt="Preview">
+                        </div>
+                        <div class="input-group full-width">
+                            <label>Descripción</label>
+                            <textarea id="prod-descripcion" placeholder="Descripción breve del producto..."></textarea>
+                        </div>
+                        <div class="input-group full-width">
+                            <label>Ingredientes</label>
+                            <textarea id="prod-ingredientes" placeholder="Carne 150g, Cheddar, Bacon, Pan brioche..."></textarea>
+                        </div>
+                        <div class="input-group">
+                            <label style="display:flex; align-items:center; gap:8px;">
+                                <input type="checkbox" id="prod-destacado" style="width:18px; height:18px;">
+                                DESTACADO
+                            </label>
+                        </div>
+                        <div class="input-group">
+                            <label style="display:flex; align-items:center; gap:8px;">
+                                <input type="checkbox" id="prod-activo" checked style="width:18px; height:18px;">
+                                ACTIVO (visible en web)
+                            </label>
+                        </div>
+                    </div>
+                    <div style="margin-top:1.5rem; display:flex; gap:10px;">
+                        <button type="submit" class="add-btn" id="product-submit-btn">CREAR PRODUCTO</button>
+                        <button type="button" class="add-btn" id="product-cancel-btn" style="display:none; background:#666;" onclick="cancelProductEdit()">CANCELAR</button>
+                    </div>
+                    <input type="hidden" id="prod-edit-id" value="">
+                </form>
+            </div>
+
+            <div class="table-scroll-wrap">
+                <table class="brutalist-table">
+                    <thead>
+                        <tr>
+                            <th>IMG</th>
+                            <th>PRODUCTO</th>
+                            <th>CATEGORÍA</th>
+                            <th>SIMPLE</th>
+                            <th>DOBLE</th>
+                            <th>STOCK</th>
+                            <th>ESTADO</th>
+                            <th>ACCIONES</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productos-table-body">
+                        <tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">Cargando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- STOCK -->
         <section id="stock-section" class="admin-section">
             <header><h1>Gestión de Insumos</h1></header>
             <div class="stock-control-panel">
@@ -1078,6 +1286,42 @@
                     </thead>
                     <tbody id="marketing-table-body"></tbody>
                 </table>
+            </div>
+        </section>
+
+        <!-- CONFIGURACIÓN -->
+        <section id="configuracion-section" class="admin-section">
+            <header><h1>Configuración</h1></header>
+
+            <div class="stock-control-panel">
+                <h2 style="margin-bottom:1.5rem; font-family:'Archivo Black'; font-size:1.2rem;">HORARIOS DE ATENCIÓN</h2>
+                <p style="margin-bottom:1rem; font-size:0.85rem; color:#666;">Configurá los días y horarios en los que la tienda web permite pedidos automáticamente.</p>
+                <form id="hours-form" onsubmit="saveStoreHours(event)">
+                    <div class="input-group full-width" style="margin-bottom:1.5rem;">
+                        <label>Días de operación</label>
+                        <div class="days-checkboxes" id="days-checkboxes">
+                            <label><input type="checkbox" value="1"> LUN</label>
+                            <label><input type="checkbox" value="2"> MAR</label>
+                            <label><input type="checkbox" value="3"> MIÉ</label>
+                            <label><input type="checkbox" value="4"> JUE</label>
+                            <label><input type="checkbox" value="5"> VIE</label>
+                            <label><input type="checkbox" value="6"> SÁB</label>
+                            <label><input type="checkbox" value="0"> DOM</label>
+                        </div>
+                    </div>
+                    <div class="hours-config-grid">
+                        <div class="input-group">
+                            <label>Hora apertura</label>
+                            <input type="time" id="hours-open" value="18:00">
+                        </div>
+                        <div class="input-group">
+                            <label>Hora cierre</label>
+                            <input type="time" id="hours-close" value="00:00">
+                        </div>
+                        <button type="submit" class="add-btn">GUARDAR</button>
+                    </div>
+                </form>
+                <div id="hours-status" style="margin-top:1rem; font-size:0.85rem; color:#666;"></div>
             </div>
         </section>
 

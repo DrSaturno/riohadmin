@@ -1,6 +1,5 @@
 // RIOH. ADMIN ENGINE
 
-// Credenciales (usuario de prueba hasta producción)
 const ADMIN_USERS = {
     admin: 'riohadmin2025'
 };
@@ -11,7 +10,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sessionStorage.getItem(SESSION_KEY) === '1') {
         showAdminApp();
     }
-    // Otherwise login overlay stays visible (default)
 });
 
 window.doLogin = function () {
@@ -53,7 +51,6 @@ let allInsumos = [];
 let currentFilter = 'hoy';
 let customDateRange = { from: null, to: null };
 
-// Orders state
 let ordersFilter = 'hoy';
 let ordersCustomRange = { from: null, to: null };
 let ordersAutoRefreshTimer = null;
@@ -70,7 +67,7 @@ window.closeMobileMenu = function () {
     document.getElementById('sidebar-overlay').classList.remove('open');
 };
 
-// ── APP INITIALIZATION (called after login) ──
+// ── APP INITIALIZATION ──
 async function initApp() {
     if (typeof window.supabase !== 'undefined') {
         client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -78,7 +75,9 @@ async function initApp() {
         initRealtime();
         initForms();
         startOrdersAutoRefresh();
-        initDemoBtn();
+        loadStoreStatus();
+        loadStoreHours();
+        initProductImagePreview();
         if (typeof lucide !== 'undefined') lucide.createIcons();
     } else {
         alert("ERROR CRÍTICO: Supabase SDK no encontrado.");
@@ -93,11 +92,10 @@ function initForms() {
     if (marketingForm) marketingForm.onsubmit = handleMarketingSubmit;
 }
 
-// ── CASH REGISTER SOUND (Web Audio API) ──
+// ── CASH REGISTER SOUND ──
 function playCashRegisterSound() {
     try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
-
         function ding(freq, startTime, duration) {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
@@ -110,19 +108,16 @@ function playCashRegisterSound() {
             osc.start(ctx.currentTime + startTime);
             osc.stop(ctx.currentTime + startTime + duration);
         }
-
         ding(1400, 0, 0.25);
         ding(1000, 0.18, 0.3);
         ding(1200, 0.38, 0.35);
-    } catch (e) {
-        console.log("Audio error:", e);
-    }
+    } catch (e) { console.log("Audio error:", e); }
 }
 
 function initRealtime() {
     client
         .channel('schema-db-changes')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pedidos' }, (payload) => {
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pedidos' }, () => {
             playCashRegisterSound();
             showNewOrderToast();
             loadOrders();
@@ -143,73 +138,13 @@ function showNewOrderToast() {
         z-index: 9999;
         animation: toastIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     `;
-    toast.innerHTML = `¡NUEVO PEDIDO ENTRANDO!`;
+    toast.innerHTML = '¡NUEVO PEDIDO ENTRANDO!';
     document.body.appendChild(toast);
     setTimeout(() => {
         toast.style.animation = 'toastOut 0.5s forwards';
         setTimeout(() => toast.remove(), 500);
     }, 5000);
 }
-
-// ── EXPORT: WHATSAPP ──
-window.exportToWhatsApp = function () {
-    const total    = document.getElementById('stats-total-sales')?.innerText || '$0';
-    const pedidos  = document.getElementById('stats-orders-count')?.innerText || '0';
-    const ticket   = document.getElementById('stats-avg-ticket')?.innerText || '$0';
-
-    const filters  = { hoy: 'Hoy', semana: 'Semana', mes: 'Mes', trimestre: 'Trimestre', semestre: 'Semestre', custom: 'Rango personalizado' };
-    const periodo  = filters[currentFilter] || currentFilter;
-
-    let sellers = '';
-    const bestEl = document.getElementById('best-sellers-list');
-    if (bestEl) {
-        const rows = bestEl.querySelectorAll('div');
-        rows.forEach((r, i) => { if (i < 3) sellers += `  ${r.textContent.trim()}\n`; });
-    }
-
-    const text = `🍔 *RIOH. Burgers — Resumen ${periodo}*\n\n💰 Ventas: *${total}*\n📦 Pedidos: *${pedidos}*\n🎯 Ticket promedio: *${ticket}*\n\n🏆 Top productos:\n${sellers || '  Sin datos'}\n\n_Panel RIOH.ADMIN_`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-};
-
-// ── EXPORT: PDF ──
-window.exportToPDF = function () {
-    window.print();
-};
-
-window.toggleDemoMode = function () {
-    const isDemo = localStorage.getItem('rioh_demo') === '1';
-    if (isDemo) {
-        localStorage.removeItem('rioh_demo');
-        showStatusToast("MODO DEMO DESACTIVADO");
-        updateDemoBtn(false);
-    } else {
-        localStorage.setItem('rioh_demo', '1');
-        showStatusToast("MODO DEMO ACTIVADO — la web está abierta para pruebas");
-        updateDemoBtn(true);
-    }
-};
-
-function updateDemoBtn(isActive) {
-    const btn = document.getElementById('demo-mode-btn');
-    if (!btn) return;
-    if (isActive) {
-        btn.style.background = '#FFD600';
-        btn.style.color = '#111';
-        btn.style.borderColor = '#111';
-        btn.textContent = '⚡ MODO DEMO: ON';
-    } else {
-        btn.style.background = 'var(--primary)';
-        btn.style.color = 'white';
-        btn.style.borderColor = 'white';
-        btn.textContent = '⚡ MODO DEMO: OFF';
-    }
-}
-
-function initDemoBtn() {
-    updateDemoBtn(localStorage.getItem('rioh_demo') === '1');
-}
-
-let showingDemoOrders = false;
 
 function showStatusToast(message) {
     const t = document.createElement('div');
@@ -225,7 +160,326 @@ function showStatusToast(message) {
     setTimeout(() => t.remove(), 3000);
 }
 
-// ── GLOBAL NAVIGATION ──
+// ── EXPORT: WHATSAPP ──
+window.exportToWhatsApp = function () {
+    const total = document.getElementById('stats-total-sales')?.innerText || '$0';
+    const pedidos = document.getElementById('stats-orders-count')?.innerText || '0';
+    const ticket = document.getElementById('stats-avg-ticket')?.innerText || '$0';
+    const filters = { hoy: 'Hoy', semana: 'Semana', mes: 'Mes', trimestre: 'Trimestre', semestre: 'Semestre', custom: 'Rango personalizado' };
+    const periodo = filters[currentFilter] || currentFilter;
+    let sellers = '';
+    const bestEl = document.getElementById('best-sellers-list');
+    if (bestEl) {
+        const rows = bestEl.querySelectorAll('div');
+        rows.forEach((r, i) => { if (i < 3) sellers += `  ${r.textContent.trim()}\n`; });
+    }
+    const text = `🍔 *RIOH. Burgers — Resumen ${periodo}*\n\n💰 Ventas: *${total}*\n📦 Pedidos: *${pedidos}*\n🎯 Ticket promedio: *${ticket}*\n\n🏆 Top productos:\n${sellers || '  Sin datos'}\n\n_Panel RIOH.ADMIN_`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+};
+
+window.exportToPDF = function () { window.print(); };
+
+// ══════════════════════════════════
+// STORE ON/OFF TOGGLE
+// ══════════════════════════════════
+
+async function loadStoreStatus() {
+    if (!client) return;
+    try {
+        const { data } = await client.from('configuracion').select('valor').eq('id', 'ventas_web').maybeSingle();
+        if (data && data.valor) {
+            const isOnline = data.valor.online === true;
+            document.getElementById('store-toggle').checked = isOnline;
+            updateStoreStatusUI(isOnline);
+        }
+    } catch (e) { console.error("Error loading store status:", e); }
+}
+
+function updateStoreStatusUI(isOnline) {
+    const label = document.getElementById('store-status-label');
+    if (!label) return;
+    if (isOnline) {
+        label.textContent = 'ABIERTA';
+        label.className = 'store-toggle-status online';
+    } else {
+        label.textContent = 'CERRADA';
+        label.className = 'store-toggle-status offline';
+    }
+}
+
+window.toggleStoreStatus = async function () {
+    const toggle = document.getElementById('store-toggle');
+    const newValue = toggle.checked;
+    updateStoreStatusUI(newValue);
+
+    try {
+        const { error } = await client.from('configuracion').upsert({
+            id: 'ventas_web',
+            valor: { online: newValue }
+        });
+        if (error) throw error;
+        showStatusToast(newValue ? 'TIENDA ABIERTA' : 'TIENDA CERRADA');
+    } catch (e) {
+        console.error("Error toggling store:", e);
+        toggle.checked = !newValue;
+        updateStoreStatusUI(!newValue);
+        showStatusToast('Error al cambiar estado de tienda');
+    }
+};
+
+// ══════════════════════════════════
+// STORE HOURS CONFIGURATION
+// ══════════════════════════════════
+
+async function loadStoreHours() {
+    if (!client) return;
+    try {
+        const { data } = await client.from('configuracion').select('valor').eq('id', 'horarios_atencion').maybeSingle();
+        if (data && data.valor) {
+            const h = data.valor;
+            if (h.dias && Array.isArray(h.dias)) {
+                document.querySelectorAll('#days-checkboxes input').forEach(cb => {
+                    cb.checked = h.dias.includes(parseInt(cb.value));
+                });
+            }
+            if (h.hora_apertura) document.getElementById('hours-open').value = h.hora_apertura;
+            if (h.hora_cierre) document.getElementById('hours-close').value = h.hora_cierre;
+
+            const dayNames = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+            const daysText = (h.dias || []).map(d => dayNames[d]).join(', ');
+            document.getElementById('hours-status').innerHTML =
+                `<strong>Configuración actual:</strong> ${daysText || 'Sin días'} de ${h.hora_apertura || '--:--'} a ${h.hora_cierre || '--:--'}`;
+        }
+    } catch (e) { console.error("Error loading hours:", e); }
+}
+
+window.saveStoreHours = async function (e) {
+    e.preventDefault();
+    const dias = [];
+    document.querySelectorAll('#days-checkboxes input:checked').forEach(cb => {
+        dias.push(parseInt(cb.value));
+    });
+    const hora_apertura = document.getElementById('hours-open').value;
+    const hora_cierre = document.getElementById('hours-close').value;
+
+    try {
+        const { error } = await client.from('configuracion').upsert({
+            id: 'horarios_atencion',
+            valor: { dias, hora_apertura, hora_cierre }
+        });
+        if (error) throw error;
+        showStatusToast('HORARIOS GUARDADOS');
+        loadStoreHours();
+    } catch (err) {
+        console.error(err);
+        showStatusToast('Error al guardar horarios');
+    }
+};
+
+// ══════════════════════════════════
+// PRODUCTOS CRUD
+// ══════════════════════════════════
+
+function initProductImagePreview() {
+    const input = document.getElementById('prod-imagen');
+    if (!input) return;
+    input.addEventListener('change', () => {
+        const file = input.files[0];
+        const preview = document.getElementById('prod-img-preview');
+        if (file) {
+            preview.src = URL.createObjectURL(file);
+            preview.style.display = 'block';
+        } else {
+            preview.style.display = 'none';
+        }
+    });
+}
+
+window.toggleDoblePrice = function () {
+    const cat = document.getElementById('prod-categoria').value;
+    document.getElementById('prod-doble-wrap').style.display = cat === 'burgers' ? 'flex' : 'none';
+};
+
+async function uploadProductImage(file) {
+    const ext = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+    const filePath = `products/${fileName}`;
+
+    const { error } = await client.storage.from('product-images').upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false
+    });
+
+    if (error) throw error;
+
+    const { data } = client.storage.from('product-images').getPublicUrl(filePath);
+    return data.publicUrl;
+}
+
+window.handleProductSubmit = async function (e) {
+    e.preventDefault();
+    const editId = document.getElementById('prod-edit-id').value;
+    const submitBtn = document.getElementById('product-submit-btn');
+    submitBtn.textContent = editId ? 'GUARDANDO...' : 'CREANDO...';
+    submitBtn.disabled = true;
+
+    try {
+        let imagen_url = null;
+        const fileInput = document.getElementById('prod-imagen');
+        if (fileInput.files[0]) {
+            imagen_url = await uploadProductImage(fileInput.files[0]);
+        }
+
+        const payload = {
+            nombre: document.getElementById('prod-nombre').value.trim(),
+            categoria: document.getElementById('prod-categoria').value,
+            precio_simple: parseFloat(document.getElementById('prod-precio-simple').value) || 0,
+            precio_doble: parseFloat(document.getElementById('prod-precio-doble').value) || 0,
+            descripcion: document.getElementById('prod-descripcion').value.trim(),
+            ingredientes: document.getElementById('prod-ingredientes').value.trim(),
+            stock: parseInt(document.getElementById('prod-stock').value) || 0,
+            destacado: document.getElementById('prod-destacado').checked,
+            activo: document.getElementById('prod-activo').checked
+        };
+
+        if (imagen_url) payload.imagen_url = imagen_url;
+
+        if (editId) {
+            const { error } = await client.from('productos').update(payload).eq('id', editId);
+            if (error) throw error;
+            showStatusToast('PRODUCTO ACTUALIZADO');
+        } else {
+            if (!imagen_url) payload.imagen_url = 'burger1.png';
+            const { error } = await client.from('productos').insert(payload);
+            if (error) throw error;
+            showStatusToast('PRODUCTO CREADO');
+        }
+
+        cancelProductEdit();
+        loadProductos();
+    } catch (err) {
+        console.error("Product save error:", err);
+        showStatusToast('Error al guardar producto: ' + (err.message || ''));
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = editId ? 'GUARDAR CAMBIOS' : 'CREAR PRODUCTO';
+    }
+};
+
+window.loadProductos = async function () {
+    if (!client) return;
+    try {
+        const { data, error } = await client.from('productos').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        renderProductosTable(data || []);
+    } catch (err) { console.error("Products load error:", err); }
+};
+
+function renderProductosTable(productos) {
+    const tbody = document.getElementById('productos-table-body');
+    if (!tbody) return;
+
+    if (!productos.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">Sin productos</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = productos.map(p => {
+        const imgSrc = p.imagen_url || 'burger1.png';
+        const statusBadge = p.activo
+            ? '<span class="status-badge status-ok">ACTIVO</span>'
+            : '<span class="status-badge status-inactive">INACTIVO</span>';
+        const stockBadge = (p.stock !== null && p.stock !== undefined && p.stock <= 0)
+            ? '<span style="color:var(--primary); font-weight:900;">AGOTADO</span>'
+            : (p.stock || 0);
+
+        return `<tr>
+            <td><img src="${imgSrc}" class="product-table-img" alt="${p.nombre}"></td>
+            <td>
+                <strong style="font-family:'Archivo Black';">${p.nombre}</strong>
+                ${p.destacado ? ' ⭐' : ''}
+                ${p.ingredientes ? `<br><small style="color:#888;">${p.ingredientes.substring(0, 50)}${p.ingredientes.length > 50 ? '...' : ''}</small>` : ''}
+            </td>
+            <td>${(p.categoria || '').toUpperCase()}</td>
+            <td>$${(p.precio_simple || 0).toLocaleString()}</td>
+            <td>${p.precio_doble ? '$' + p.precio_doble.toLocaleString() : '—'}</td>
+            <td>${stockBadge}</td>
+            <td>${statusBadge}</td>
+            <td style="white-space:nowrap;">
+                <button class="qty-btn" style="font-size:0.7rem; padding:5px 10px;" onclick="editProduct('${p.id}')">EDITAR</button>
+                <button class="qty-btn" style="font-size:0.7rem; padding:5px 10px;" onclick="toggleProductActive('${p.id}', ${p.activo})">${p.activo ? 'DESACTIVAR' : 'ACTIVAR'}</button>
+                <button class="qty-btn" style="font-size:0.7rem; padding:5px 10px; color:var(--primary);" onclick="deleteProduct('${p.id}')">ELIMINAR</button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+window.editProduct = async function (id) {
+    if (!client) return;
+    try {
+        const { data, error } = await client.from('productos').select('*').eq('id', id).single();
+        if (error) throw error;
+
+        document.getElementById('prod-edit-id').value = data.id;
+        document.getElementById('prod-nombre').value = data.nombre || '';
+        document.getElementById('prod-categoria').value = data.categoria || 'burgers';
+        document.getElementById('prod-precio-simple').value = data.precio_simple || '';
+        document.getElementById('prod-precio-doble').value = data.precio_doble || '';
+        document.getElementById('prod-descripcion').value = data.descripcion || '';
+        document.getElementById('prod-ingredientes').value = data.ingredientes || '';
+        document.getElementById('prod-stock').value = data.stock || 0;
+        document.getElementById('prod-destacado').checked = data.destacado || false;
+        document.getElementById('prod-activo').checked = data.activo !== false;
+
+        const preview = document.getElementById('prod-img-preview');
+        if (data.imagen_url) {
+            preview.src = data.imagen_url;
+            preview.style.display = 'block';
+        }
+
+        toggleDoblePrice();
+        document.getElementById('product-form-title').textContent = 'EDITAR PRODUCTO';
+        document.getElementById('product-submit-btn').textContent = 'GUARDAR CAMBIOS';
+        document.getElementById('product-cancel-btn').style.display = 'inline-block';
+
+        document.getElementById('productos-section').scrollIntoView({ behavior: 'smooth' });
+    } catch (err) { console.error(err); showStatusToast('Error al cargar producto'); }
+};
+
+window.cancelProductEdit = function () {
+    document.getElementById('product-form').reset();
+    document.getElementById('prod-edit-id').value = '';
+    document.getElementById('prod-activo').checked = true;
+    document.getElementById('prod-img-preview').style.display = 'none';
+    document.getElementById('product-form-title').textContent = 'NUEVO PRODUCTO';
+    document.getElementById('product-submit-btn').textContent = 'CREAR PRODUCTO';
+    document.getElementById('product-cancel-btn').style.display = 'none';
+    toggleDoblePrice();
+};
+
+window.toggleProductActive = async function (id, currentActive) {
+    try {
+        const { error } = await client.from('productos').update({ activo: !currentActive }).eq('id', id);
+        if (error) throw error;
+        loadProductos();
+        showStatusToast(currentActive ? 'PRODUCTO DESACTIVADO' : 'PRODUCTO ACTIVADO');
+    } catch (err) { showStatusToast('Error al cambiar estado'); }
+};
+
+window.deleteProduct = async function (id) {
+    if (!confirm('¿Eliminar este producto? Esta acción no se puede deshacer.')) return;
+    try {
+        const { error } = await client.from('productos').delete().eq('id', id);
+        if (error) throw error;
+        loadProductos();
+        showStatusToast('PRODUCTO ELIMINADO');
+    } catch (err) { showStatusToast('Error al eliminar producto'); }
+};
+
+// ══════════════════════════════════
+// GLOBAL NAVIGATION
+// ══════════════════════════════════
+
 window.showSection = function (e, sectionId) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     closeMobileMenu();
@@ -251,6 +505,8 @@ window.showSection = function (e, sectionId) {
     if (sectionId === 'stock') loadStockData();
     if (sectionId === 'orders') loadOrders();
     if (sectionId === 'marketing') loadMarketingData();
+    if (sectionId === 'productos') loadProductos();
+    if (sectionId === 'configuracion') loadStoreHours();
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
 };
@@ -260,10 +516,14 @@ window.refreshAll = function () {
     loadStockData();
     loadOrders();
     loadMarketingData();
+    loadProductos();
     if (typeof lucide !== 'undefined') lucide.createIcons();
 };
 
-// ── ORDERS — KANBAN ──
+// ══════════════════════════════════
+// ORDERS — KANBAN
+// ══════════════════════════════════
+
 function startOrdersAutoRefresh() {
     if (ordersAutoRefreshTimer) clearInterval(ordersAutoRefreshTimer);
     ordersAutoRefreshTimer = setInterval(() => {
@@ -325,24 +585,24 @@ async function loadOrders() {
 
         const { data: orders, error } = await query;
         if (error) throw error;
-        renderKanban(orders, false);
+        renderKanban(orders || []);
     } catch (err) { console.error("Orders Load Error:", err); }
 }
 
-function renderKanban(orders, isDemo) {
+function renderKanban(orders) {
     const nextLabel = { pendiente: 'CONFIRMAR PAGO', aprobado: 'EN PREPARACIÓN', preparacion: 'ENTREGADO ✓' };
     const prevLabel = { aprobado: '← Nuevo', preparacion: '← Pago OK', entregado: '← En prep.' };
 
     const grupos = {
-        pendiente:   orders.filter(o => !o.estado_pago || o.estado_pago === 'pendiente'),
-        aprobado:    orders.filter(o => o.estado_pago === 'aprobado'),
+        pendiente: orders.filter(o => !o.estado_pago || o.estado_pago === 'pendiente' || o.estado_pago === 'pendiente_efectivo' || o.estado_pago === 'pendiente_transferencia'),
+        aprobado: orders.filter(o => o.estado_pago === 'aprobado'),
         preparacion: orders.filter(o => o.estado_pago === 'preparacion'),
-        entregado:   orders.filter(o => o.estado_pago === 'entregado')
+        entregado: orders.filter(o => o.estado_pago === 'entregado')
     };
 
     for (const [estado, cards] of Object.entries(grupos)) {
         const container = document.getElementById(`cards-${estado}`);
-        const countEl   = document.getElementById(`count-${estado}`);
+        const countEl = document.getElementById(`count-${estado}`);
         const mTabCount = document.getElementById(`mtab-${estado}`);
         if (!container) continue;
 
@@ -355,30 +615,26 @@ function renderKanban(orders, isDemo) {
         }
 
         container.innerHTML = cards.map(o => {
-            const nombre  = o.clientes?.nombre || 'Cliente S/N';
-            const tel     = o.clientes?.whatsapp || '';
-            const d       = new Date(o.created_at);
-            const hora    = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-            const items   = (o.items || []).map(i => `<div>${i.qty}x ${i.title} <small style="color:#999;">(${i.type})</small></div>`).join('');
-            const entrega = o.metodo_entrega === 'takeaway' ? '🏠 Retiro' : `🛵 ${o.direccion_entrega || 'Delivery'}`;
-            const demoBadge = isDemo ? '<span style="font-size:0.55rem; background:#FFD600; color:#111; padding:1px 5px; font-weight:900; vertical-align:middle;">EJEMPLO</span> ' : '';
-
-            const advFn = isDemo ? `advanceDemoOrder('${o.id}','${estado}')` : `advanceOrder('${o.id}','${estado}')`;
-            const retFn = isDemo ? `retreatDemoOrder('${o.id}','${estado}')` : `retreatOrder('${o.id}','${estado}')`;
-            const delFn = isDemo ? `deleteDemoOrder('${o.id}')` : `deleteKanbanOrder('${o.id}')`;
+            const nombre = o.clientes?.nombre || 'Cliente S/N';
+            const tel = o.clientes?.whatsapp || '';
+            const d = new Date(o.created_at);
+            const hora = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+            const items = (o.items || []).map(i => `<div>${i.qty}x ${i.title} <small style="color:#999;">(${i.type})</small></div>`).join('');
+            const entrega = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup' ? '🏠 Retiro' : `🛵 ${o.direccion_entrega || 'Delivery'}`;
 
             const actionRow = estado !== 'entregado'
                 ? `<div class="card-actions">
-                    ${prevLabel[estado] ? `<button class="card-btn card-btn-back" onclick="${retFn}">${prevLabel[estado]}</button>` : ''}
-                    <button class="card-btn card-btn-advance" onclick="${advFn}">${nextLabel[estado]} →</button>
+                    ${prevLabel[estado] ? `<button class="card-btn card-btn-back" onclick="retreatOrder('${o.id}','${estado}')">${prevLabel[estado]}</button>` : ''}
+                    <button class="card-btn card-btn-advance" onclick="advanceOrder('${o.id}','${estado}')">${nextLabel[estado]} →</button>
+                    <button class="card-btn card-btn-delete" onclick="deleteKanbanOrder('${o.id}')"><i data-lucide="trash-2" style="width:12px;"></i></button>
                    </div>`
                 : `<div class="card-actions">
-                    <button class="card-btn card-btn-back" style="flex:1;" onclick="${retFn}">${prevLabel[estado]}</button>
+                    <button class="card-btn card-btn-back" style="flex:1;" onclick="retreatOrder('${o.id}','${estado}')">${prevLabel[estado]}</button>
                    </div>`;
 
             return `<div class="kanban-card">
                 <div class="kanban-card-header">
-                    <strong style="font-family:'Archivo Black'; font-size:0.88rem;">${demoBadge}#${o.numero_pedido || '---'}</strong>
+                    <strong style="font-family:'Archivo Black'; font-size:0.88rem;">#${o.numero_pedido || '---'}</strong>
                     <small style="color:#888; white-space:nowrap;">${hora}</small>
                 </div>
                 <div style="font-size:0.83rem; font-weight:700;">${nombre}</div>
@@ -404,14 +660,13 @@ window.showKanbanTab = function (estado, btn) {
         b.style.color = '#333';
     });
     btn.classList.add('active');
-    const colors = { pendiente:'#BF360C', aprobado:'#1B5E20', preparacion:'#0D47A1', entregado:'#212121' };
+    const colors = { pendiente: '#BF360C', aprobado: '#1B5E20', preparacion: '#0D47A1', entregado: '#212121' };
     btn.style.background = colors[estado] || '#111';
     btn.style.color = 'white';
 };
 
-
 window.advanceOrder = async function (id, currentState) {
-    const next = { pendiente:'aprobado', aprobado:'preparacion', preparacion:'entregado' };
+    const next = { pendiente: 'aprobado', aprobado: 'preparacion', preparacion: 'entregado' };
     if (!next[currentState]) return;
     try {
         const { error } = await client.from('pedidos').update({ estado_pago: next[currentState] }).eq('id', id);
@@ -421,7 +676,7 @@ window.advanceOrder = async function (id, currentState) {
 };
 
 window.retreatOrder = async function (id, currentState) {
-    const prev = { aprobado:'pendiente', preparacion:'aprobado', entregado:'preparacion' };
+    const prev = { aprobado: 'pendiente', preparacion: 'aprobado', entregado: 'preparacion' };
     if (!prev[currentState]) return;
     try {
         const { error } = await client.from('pedidos').update({ estado_pago: prev[currentState] }).eq('id', id);
@@ -439,7 +694,10 @@ window.deleteKanbanOrder = async function (id) {
     } catch (err) { showStatusToast("Error al eliminar pedido"); }
 };
 
-// ── DASHBOARD ──
+// ══════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════
+
 window.setFilter = function (e, filter) {
     if (e) e.preventDefault();
     currentFilter = filter;
@@ -465,14 +723,6 @@ window.applyCustomFilter = function () {
 
 async function loadDashboard() {
     if (!client) return;
-
-    const refreshIcon = document.querySelector('#dashboard-section i[data-lucide="refresh-cw"]');
-    if (refreshIcon) {
-        refreshIcon.style.transition = 'transform 0.6s ease';
-        refreshIcon.style.transform = 'rotate(360deg)';
-        setTimeout(() => { refreshIcon.style.transform = 'rotate(0deg)'; refreshIcon.style.transition = 'none'; }, 600);
-    }
-
     try {
         let query = client.from('pedidos').select('*');
         let startDate, labelSuffix = 'Hoy';
@@ -510,7 +760,6 @@ async function loadDashboard() {
         const ordersTitle = document.getElementById('stats-orders-count')?.previousElementSibling;
         if (ordersTitle) ordersTitle.innerText = `Pedidos (${labelSuffix})`;
 
-        // Últimas ventas
         document.getElementById('recent-sales-log').innerHTML = pedidos.slice(0, 10).map(p => `
             <div style="border-bottom: 1px dashed #eee; padding: 10px 0;">
                 <div style="display:flex; justify-content:space-between;">
@@ -521,7 +770,6 @@ async function loadDashboard() {
             </div>
         `).join('') || '<div style="color:#999; padding:20px;">SIN VENTAS</div>';
 
-        // Ranking burgers
         const counts = {};
         pedidos.forEach(p => {
             if (p.items) p.items.forEach(i => counts[i.title] = (counts[i.title] || 0) + (i.qty || 1));
@@ -534,9 +782,7 @@ async function loadDashboard() {
             </div>
         `).join('') || '<div style="color:#999; padding:20px;">SIN DATOS</div>';
 
-        // Customer ranking
         loadCustomerRanking();
-
     } catch (err) { console.error("Dashboard Load Error:", err); }
 }
 
@@ -550,9 +796,8 @@ async function loadCustomerRanking() {
 
         if (clientesRes.error) throw clientesRes.error;
         const clientes = clientesRes.data || [];
-        const pedidos  = pedidosRes.data  || [];
+        const pedidos = pedidosRes.data || [];
 
-        // Burger count per user_id (items where type = Simple or Doble)
         const burgerMap = {};
         pedidos.forEach(p => {
             if (!p.user_id) return;
@@ -568,9 +813,9 @@ async function loadCustomerRanking() {
         if (!tbody) return;
 
         tbody.innerHTML = clientes.map((c, i) => {
-            const ticket  = c.pedidos_count > 0 ? Math.round((c.total_gastado || 0) / c.pedidos_count) : 0;
+            const ticket = c.pedidos_count > 0 ? Math.round((c.total_gastado || 0) / c.pedidos_count) : 0;
             const burgers = burgerMap[c.user_id] || 0;
-            const top     = i === 0 ? 'background:#FFF9C4;' : '';
+            const top = i === 0 ? 'background:#FFF9C4;' : '';
             return `<tr style="${top}">
                 <td style="font-family:'Archivo Black';">${i + 1}</td>
                 <td style="font-weight:700;">${c.nombre || 'S/N'}</td>
@@ -578,9 +823,9 @@ async function loadCustomerRanking() {
                 <td style="font-weight:900;">${burgers}</td>
                 <td style="font-weight:900;">$${(c.total_gastado || 0).toLocaleString()}</td>
                 <td>$${ticket.toLocaleString()}</td>
-                <td><button class="qty-btn" style="font-size:0.7rem; padding:5px 10px;" onclick="openCustomerProfile('${c.user_id}','${c.nombre}','${c.whatsapp || ''}','${c.email || ''}')">VER</button></td>
+                <td><button class="qty-btn" style="font-size:0.7rem; padding:5px 10px;" onclick="openCustomerProfile('${c.user_id}','${(c.nombre || '').replace(/'/g, "\\'")}','${c.whatsapp || ''}','${c.email || ''}')">VER</button></td>
             </tr>`;
-        }).join('') || `<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">Sin datos de clientes</td></tr>`;
+        }).join('') || '<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">Sin datos de clientes</td></tr>';
 
     } catch (err) { console.error("Customer Ranking Error:", err); }
 }
@@ -623,10 +868,10 @@ window.openCustomerProfile = async function (userId, nombre, whatsapp, email) {
         document.getElementById('profile-orders').innerHTML = pedidos.length === 0
             ? '<div style="color:#999; text-align:center; padding:20px;">Sin pedidos registrados</div>'
             : pedidos.map(p => {
-                const fecha = new Date(p.created_at).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
-                const hora  = new Date(p.created_at).toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
+                const fecha = new Date(p.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                const hora = new Date(p.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
                 const items = (p.items || []).map(i => `${i.qty}x ${i.title} (${i.type})`).join(', ');
-                const estadoColor = { pendiente:'#FF6B35', aprobado:'#2E7D32', preparacion:'#1565C0', entregado:'#424242' };
+                const estadoColor = { pendiente: '#FF6B35', aprobado: '#2E7D32', preparacion: '#1565C0', entregado: '#424242' };
                 return `<div class="profile-order">
                     <div class="profile-order-header">
                         <strong style="font-family:'Archivo Black';">#${p.numero_pedido || 'S/N'} — ${fecha} ${hora}</strong>
@@ -644,7 +889,10 @@ window.closeCustomerModal = function () {
     document.getElementById('customer-modal').style.display = 'none';
 };
 
-// ── STOCK ──
+// ══════════════════════════════════
+// STOCK
+// ══════════════════════════════════
+
 async function loadStockData() {
     if (!client) return;
     try {
@@ -688,10 +936,10 @@ async function handleStockSubmit(e) {
         }
         const { error } = await client.from('insumos').update({ stock_actual: newQty }).eq('id', id);
         if (error) throw error;
-        alert("¡Stock actualizado!");
+        showStatusToast("¡Stock actualizado!");
         e.target.reset();
         loadStockData();
-    } catch (err) { alert("Error al actualizar stock."); }
+    } catch (err) { showStatusToast("Error al actualizar stock."); }
 }
 
 window.quickUpdateStock = async function (id, change) {
@@ -703,7 +951,10 @@ window.quickUpdateStock = async function (id, change) {
     } catch (err) { console.error(err); }
 };
 
-// ── MARKETING ──
+// ══════════════════════════════════
+// MARKETING
+// ══════════════════════════════════
+
 window.toggleMarketingFields = function () {
     const applyType = document.getElementById('m-apply-type').value;
     const benefitType = document.getElementById('m-benefit-type').value;
@@ -782,11 +1033,11 @@ async function handleMarketingSubmit(e) {
             payload.nombre = nombre;
             await client.from('promociones').insert(payload);
         }
-        alert("¡Oferta creada!");
+        showStatusToast("¡Oferta creada!");
         e.target.reset();
         window.toggleMarketingFields();
         loadMarketingData();
-    } catch (err) { console.error(err); alert("Error al crear. ¿Código duplicado?"); }
+    } catch (err) { console.error(err); showStatusToast("Error al crear. ¿Código duplicado?"); }
 }
 
 window.deleteOffer = async function (id, table) {
