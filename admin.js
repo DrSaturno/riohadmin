@@ -713,8 +713,288 @@ function renderKanban(orders) {
         }).join('');
     }
 
+    // ── CALCULAR Y MOSTRAR MÉTRICAS ──
+    updatePedidosMetrics(orders);
+
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
+
+// ── MÉTRICAS DE PEDIDOS ──
+let _lastOrdersForReport = [];
+
+function updatePedidosMetrics(orders) {
+    _lastOrdersForReport = orders;
+
+    const totalPedidos = orders.length;
+    const entregados = orders.filter(o => o.estado_pago === 'entregado').length;
+    const enProceso = orders.filter(o => o.estado_pago === 'aprobado' || o.estado_pago === 'preparacion').length;
+
+    // Contar burgers (solo categoría burgers, no nuggets/papas)
+    let totalBurgers = 0;
+    let detalleItems = {};
+    orders.forEach(o => {
+        (o.items || []).forEach(i => {
+            const title = i.title || '';
+            const qty = parseInt(i.qty) || 1;
+            // Contar burgers: excluir Nuggets y Papas
+            const isBurger = !title.toLowerCase().includes('nuggets') && !title.toLowerCase().includes('papas');
+            if (isBurger) totalBurgers += qty;
+            // Detalle para resumen
+            detalleItems[title] = (detalleItems[title] || 0) + qty;
+        });
+    });
+
+    // Facturación: solo pedidos confirmados (aprobado, preparacion, entregado)
+    const confirmados = orders.filter(o => ['aprobado', 'preparacion', 'entregado'].includes(o.estado_pago));
+    const facturado = confirmados.reduce((sum, o) => sum + (o.total || 0), 0);
+    const ticket = confirmados.length > 0 ? Math.round(facturado / confirmados.length) : 0;
+
+    // Actualizar DOM
+    const el = id => document.getElementById(id);
+    el('pm-pedidos').textContent = totalPedidos;
+    el('pm-pedidos-sub').textContent = `${entregados} entregados · ${enProceso} en proceso`;
+
+    el('pm-burgers').textContent = totalBurgers;
+    // Top 2 burgers más vendidas (excluir nuggets/papas del sub)
+    const burgerItems = Object.entries(detalleItems)
+        .filter(([k]) => !k.toLowerCase().includes('nuggets') && !k.toLowerCase().includes('papas'))
+        .sort((a, b) => b[1] - a[1]).slice(0, 2);
+    el('pm-burgers-sub').textContent = burgerItems.map(([k, v]) => `${v}x ${k}`).join(' · ') || '—';
+
+    el('pm-facturado').textContent = `$${facturado.toLocaleString()}`;
+    el('pm-facturado-sub').textContent = `${confirmados.length} pedidos confirmados`;
+
+    el('pm-ticket').textContent = `$${ticket.toLocaleString()}`;
+    el('pm-ticket-sub').textContent = confirmados.length > 0 ? `sobre ${confirmados.length} pedidos` : '—';
+}
+
+// ── WHATSAPP SHARE ──
+window.shareOrdersWhatsApp = function () {
+    const orders = _lastOrdersForReport;
+    if (!orders.length) { showStatusToast('No hay pedidos para compartir'); return; }
+
+    const confirmados = orders.filter(o => ['aprobado', 'preparacion', 'entregado'].includes(o.estado_pago));
+    const facturado = confirmados.reduce((sum, o) => sum + (o.total || 0), 0);
+    const ticket = confirmados.length > 0 ? Math.round(facturado / confirmados.length) : 0;
+
+    let totalBurgers = 0;
+    let detalleItems = {};
+    orders.forEach(o => {
+        (o.items || []).forEach(i => {
+            const qty = parseInt(i.qty) || 1;
+            const title = i.title || '';
+            if (!title.toLowerCase().includes('nuggets') && !title.toLowerCase().includes('papas')) totalBurgers += qty;
+            detalleItems[title] = (detalleItems[title] || 0) + qty;
+        });
+    });
+
+    const filterLabel = { hoy: 'Hoy', semana: 'Última semana', quincena: 'Última quincena', mes: 'Último mes', custom: 'Rango personalizado' };
+    const periodo = filterLabel[ordersFilter] || ordersFilter;
+
+    let msg = `🍔 *RIOH. — Reporte de Pedidos*\n`;
+    msg += `📅 Período: ${periodo}\n\n`;
+    msg += `📊 *MÉTRICAS*\n`;
+    msg += `• Pedidos totales: *${orders.length}*\n`;
+    msg += `• Burgers vendidas: *${totalBurgers}*\n`;
+    msg += `• Facturado: *$${facturado.toLocaleString()}*\n`;
+    msg += `• Ticket promedio: *$${ticket.toLocaleString()}*\n\n`;
+
+    msg += `📋 *DETALLE DE ITEMS*\n`;
+    Object.entries(detalleItems).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
+        msg += `• ${v}x ${k}\n`;
+    });
+
+    msg += `\n📦 *ESTADOS*\n`;
+    const pendientes = orders.filter(o => !o.estado_pago || o.estado_pago.startsWith('pendiente')).length;
+    const aprobados = orders.filter(o => o.estado_pago === 'aprobado').length;
+    const preparacion = orders.filter(o => o.estado_pago === 'preparacion').length;
+    const entregados = orders.filter(o => o.estado_pago === 'entregado').length;
+    msg += `• Nuevos: ${pendientes}\n`;
+    msg += `• Pago OK: ${aprobados}\n`;
+    msg += `• En prep: ${preparacion}\n`;
+    msg += `• Entregados: ${entregados}\n`;
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+};
+
+// ── PDF DOWNLOAD ──
+window.downloadOrdersPDF = function () {
+    const orders = _lastOrdersForReport;
+    if (!orders.length) { showStatusToast('No hay pedidos para exportar'); return; }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+
+    // ── Colores RIOH
+    const RED = [227, 28, 37];       // #E31C25
+    const DARK = [17, 17, 17];       // #111
+    const GRAY = [100, 100, 100];
+    const LIGHTGRAY = [244, 244, 244];
+
+    // ── Header con fondo negro
+    doc.setFillColor(...DARK);
+    doc.rect(0, 0, pageW, 38, 'F');
+
+    // Línea roja decorativa
+    doc.setFillColor(...RED);
+    doc.rect(0, 38, pageW, 3, 'F');
+
+    // Logo RIOH.
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(28);
+    doc.setTextColor(255, 255, 255);
+    doc.text('RIOH.', 15, 22);
+
+    // Subtítulo
+    doc.setFontSize(10);
+    doc.setTextColor(180, 180, 180);
+    doc.text('REPORTE DE PEDIDOS', 15, 31);
+
+    // Fecha
+    const filterLabel = { hoy: 'Hoy', semana: 'Última semana', quincena: 'Última quincena', mes: 'Último mes', custom: 'Rango personalizado' };
+    const periodo = filterLabel[ordersFilter] || ordersFilter;
+    const ahora = new Date();
+    const fechaStr = `${ahora.toLocaleDateString('es-AR')} — ${periodo}`;
+    doc.setFontSize(9);
+    doc.setTextColor(150, 150, 150);
+    doc.text(fechaStr, pageW - 15, 31, { align: 'right' });
+
+    // ── Métricas calculadas
+    const confirmados = orders.filter(o => ['aprobado', 'preparacion', 'entregado'].includes(o.estado_pago));
+    const facturado = confirmados.reduce((sum, o) => sum + (o.total || 0), 0);
+    const ticket = confirmados.length > 0 ? Math.round(facturado / confirmados.length) : 0;
+    let totalBurgers = 0;
+    let detalleItems = {};
+    orders.forEach(o => {
+        (o.items || []).forEach(i => {
+            const qty = parseInt(i.qty) || 1;
+            const title = i.title || '';
+            if (!title.toLowerCase().includes('nuggets') && !title.toLowerCase().includes('papas')) totalBurgers += qty;
+            detalleItems[title] = (detalleItems[title] || 0) + qty;
+        });
+    });
+
+    // ── Cards de métricas
+    let y = 50;
+    const cardW = (pageW - 30 - 15) / 4;  // 4 cards con gaps
+    const metrics = [
+        { label: 'PEDIDOS', value: String(orders.length), sub: `${confirmados.length} confirmados` },
+        { label: 'BURGERS VENDIDAS', value: String(totalBurgers), sub: 'unidades' },
+        { label: 'FACTURADO', value: `$${facturado.toLocaleString()}`, sub: `${confirmados.length} pedidos` },
+        { label: 'TICKET PROMEDIO', value: `$${ticket.toLocaleString()}`, sub: `sobre ${confirmados.length}` }
+    ];
+
+    metrics.forEach((m, idx) => {
+        const x = 15 + idx * (cardW + 5);
+        // Card background
+        doc.setFillColor(...LIGHTGRAY);
+        doc.roundedRect(x, y, cardW, 28, 2, 2, 'F');
+        // Border top roja
+        doc.setFillColor(...RED);
+        doc.rect(x, y, cardW, 2, 'F');
+        // Label
+        doc.setFontSize(6.5);
+        doc.setTextColor(...GRAY);
+        doc.setFont('helvetica', 'normal');
+        doc.text(m.label, x + 4, y + 9);
+        // Value
+        doc.setFontSize(14);
+        doc.setTextColor(...DARK);
+        doc.setFont('helvetica', 'bold');
+        doc.text(m.value, x + 4, y + 19);
+        // Sub
+        doc.setFontSize(6);
+        doc.setTextColor(...GRAY);
+        doc.setFont('helvetica', 'normal');
+        doc.text(m.sub, x + 4, y + 25);
+    });
+
+    y += 38;
+
+    // ── Detalle de items vendidos
+    doc.setFontSize(11);
+    doc.setTextColor(...DARK);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ITEMS VENDIDOS', 15, y);
+    y += 6;
+
+    const itemRows = Object.entries(detalleItems).sort((a, b) => b[1] - a[1]);
+    doc.autoTable({
+        startY: y,
+        head: [['Producto', 'Cantidad']],
+        body: itemRows.map(([k, v]) => [k, `${v} uds.`]),
+        margin: { left: 15, right: 15 },
+        styles: { fontSize: 8, cellPadding: 3, lineColor: DARK, lineWidth: 0.3 },
+        headStyles: { fillColor: DARK, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: { 1: { halign: 'center', cellWidth: 30 } }
+    });
+
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ── Tabla de pedidos
+    if (y > pageH - 60) { doc.addPage(); y = 20; }
+    doc.setFontSize(11);
+    doc.setTextColor(...DARK);
+    doc.setFont('helvetica', 'bold');
+    doc.text('DETALLE DE PEDIDOS', 15, y);
+    y += 6;
+
+    const estadoLabel = { pendiente: 'Nuevo', pendiente_efectivo: 'Nuevo (Efect.)', pendiente_transferencia: 'Nuevo (Transf.)', aprobado: 'Pago OK', preparacion: 'En prep.', entregado: 'Entregado' };
+    const pedidoRows = orders.map(o => {
+        const d = new Date(o.created_at);
+        const fecha = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        const nombre = o.clientes?.nombre || 'S/N';
+        const itemsStr = (o.items || []).map(i => {
+            let s = `${i.qty}x ${i.title}`;
+            if (i.type) s += ` (${i.type})`;
+            if (i.extras && i.extras.length) s += ` +${i.extras.join(', ')}`;
+            return s;
+        }).join(' | ');
+        const estado = estadoLabel[o.estado_pago] || o.estado_pago || 'Nuevo';
+        return [`#${o.numero_pedido || '—'}`, fecha, nombre, itemsStr, estado, `$${(o.total || 0).toLocaleString()}`];
+    });
+
+    doc.autoTable({
+        startY: y,
+        head: [['#', 'Fecha', 'Cliente', 'Items', 'Estado', 'Total']],
+        body: pedidoRows,
+        margin: { left: 15, right: 15 },
+        styles: { fontSize: 7, cellPadding: 2.5, lineColor: DARK, lineWidth: 0.2, overflow: 'linebreak' },
+        headStyles: { fillColor: RED, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+        alternateRowStyles: { fillColor: [252, 252, 252] },
+        columnStyles: {
+            0: { cellWidth: 14, fontStyle: 'bold' },
+            1: { cellWidth: 22 },
+            2: { cellWidth: 22 },
+            3: { cellWidth: 'auto' },
+            4: { cellWidth: 22, halign: 'center' },
+            5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' }
+        }
+    });
+
+    // ── Footer
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        // Línea roja
+        doc.setFillColor(...RED);
+        doc.rect(0, pageH - 12, pageW, 1, 'F');
+        // Footer text
+        doc.setFontSize(7);
+        doc.setTextColor(...GRAY);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`RIOH. — Reporte generado el ${ahora.toLocaleDateString('es-AR')} a las ${ahora.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`, 15, pageH - 6);
+        doc.text(`Página ${p} de ${totalPages}`, pageW - 15, pageH - 6, { align: 'right' });
+    }
+
+    // ── Save
+    const fileName = `RIOH_Pedidos_${ahora.toISOString().slice(0, 10)}.pdf`;
+    doc.save(fileName);
+    showStatusToast(`PDF descargado: ${fileName}`);
+};
 
 // ── MOBILE KANBAN TABS ──
 window.showKanbanTab = function (estado, btn) {
