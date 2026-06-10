@@ -54,6 +54,8 @@ let customDateRange = { from: null, to: null };
 let ordersFilter = 'hoy';
 let ordersCustomRange = { from: null, to: null };
 let ordersAutoRefreshTimer = null;
+let currentRecipe = [];
+let allIngredientesForRecipe = [];
 
 // ── MOBILE MENU ──
 window.toggleMobileMenu = function () {
@@ -78,6 +80,7 @@ async function initApp() {
         loadStoreStatus();
         loadStoreHours();
         initProductImagePreview();
+        loadIngredientesForRecipe();
         if (typeof lucide !== 'undefined') lucide.createIcons();
     } else {
         alert("ERROR CRÍTICO: Supabase SDK no encontrado.");
@@ -295,6 +298,57 @@ function initProductImagePreview() {
     });
 }
 
+async function loadIngredientesForRecipe() {
+    if (!client) return;
+    try {
+        const { data } = await client.from('insumos').select('*').order('nombre');
+        allIngredientesForRecipe = data || [];
+        const select = document.getElementById('recipe-ingredient-select');
+        if (select) {
+            select.innerHTML = '<option value="">Seleccionar ingrediente...</option>' +
+                allIngredientesForRecipe.map(i => `<option value="${i.id}">${i.nombre} (${i.unidad})</option>`).join('');
+        }
+    } catch (e) { console.error("Error loading ingredientes for recipe:", e); }
+}
+
+window.addRecipeIngredient = function () {
+    const select = document.getElementById('recipe-ingredient-select');
+    const qtyInput = document.getElementById('recipe-ingredient-qty');
+    const id = select.value;
+    const qty = parseFloat(qtyInput.value);
+    if (!id || !qty || qty <= 0) { showStatusToast('Seleccioná ingrediente y cantidad'); return; }
+    if (currentRecipe.find(r => String(r.ingrediente_id) === String(id))) { showStatusToast('Ingrediente ya agregado'); return; }
+    const ing = allIngredientesForRecipe.find(i => String(i.id) === String(id));
+    if (!ing) return;
+    currentRecipe.push({ ingrediente_id: ing.id, nombre: ing.nombre, cantidad: qty, unidad: ing.unidad });
+    renderRecipeList();
+    select.value = '';
+    qtyInput.value = '';
+};
+
+window.removeRecipeIngredient = function (ingredienteId) {
+    currentRecipe = currentRecipe.filter(r => String(r.ingrediente_id) !== String(ingredienteId));
+    renderRecipeList();
+};
+
+function renderRecipeList() {
+    const container = document.getElementById('recipe-list');
+    if (!container) return;
+    if (!currentRecipe.length) {
+        container.innerHTML = '<div style="color:#999; font-size:0.85rem; padding:8px;">Sin ingredientes asignados</div>';
+        return;
+    }
+    container.innerHTML = currentRecipe.map(r => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; border:2px solid #eee; margin-bottom:4px; background:#fafafa;">
+            <span style="font-weight:700;">${r.nombre}</span>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-weight:900;">${r.cantidad} ${r.unidad}</span>
+                <button type="button" class="qty-btn" style="font-size:0.7rem; padding:4px 8px; color:var(--primary);" onclick="removeRecipeIngredient('${r.ingrediente_id}')">✕</button>
+            </div>
+        </div>
+    `).join('');
+}
+
 window.toggleDoblePrice = function () {
     const cat = document.getElementById('prod-categoria').value;
     document.getElementById('prod-doble-wrap').style.display = cat === 'burgers' ? 'flex' : 'none';
@@ -336,7 +390,8 @@ window.handleProductSubmit = async function (e) {
             precio_simple: parseFloat(document.getElementById('prod-precio-simple').value) || 0,
             precio_doble: parseFloat(document.getElementById('prod-precio-doble').value) || 0,
             descripcion: document.getElementById('prod-descripcion').value.trim(),
-            ingredientes: document.getElementById('prod-ingredientes').value.trim(),
+            ingredientes: currentRecipe.map(r => `${r.nombre} (${r.cantidad} ${r.unidad})`).join(', '),
+            receta: { ingredientes: currentRecipe },
             stock: parseInt(document.getElementById('prod-stock').value) || 0,
             destacado: document.getElementById('prod-destacado').checked,
             activo: document.getElementById('prod-activo').checked
@@ -398,7 +453,7 @@ function renderProductosTable(productos) {
             <td>
                 <strong style="font-family:'Archivo Black';">${p.nombre}</strong>
                 ${p.destacado ? ' ⭐' : ''}
-                ${p.ingredientes ? `<br><small style="color:#888;">${p.ingredientes.substring(0, 50)}${p.ingredientes.length > 50 ? '...' : ''}</small>` : ''}
+                ${(() => { const ri = p.receta?.ingredientes; const txt = ri?.length ? ri.map(r => r.nombre).join(', ') : (p.ingredientes || ''); return txt ? `<br><small style="color:#888;">${txt.substring(0, 60)}${txt.length > 60 ? '...' : ''}</small>` : ''; })()}
             </td>
             <td>${(p.categoria || '').toUpperCase()}</td>
             <td>$${(p.precio_simple || 0).toLocaleString()}</td>
@@ -426,7 +481,8 @@ window.editProduct = async function (id) {
         document.getElementById('prod-precio-simple').value = data.precio_simple || '';
         document.getElementById('prod-precio-doble').value = data.precio_doble || '';
         document.getElementById('prod-descripcion').value = data.descripcion || '';
-        document.getElementById('prod-ingredientes').value = data.ingredientes || '';
+        currentRecipe = (data.receta && data.receta.ingredientes) ? data.receta.ingredientes : [];
+        renderRecipeList();
         document.getElementById('prod-stock').value = data.stock || 0;
         document.getElementById('prod-destacado').checked = data.destacado || false;
         document.getElementById('prod-activo').checked = data.activo !== false;
@@ -449,6 +505,8 @@ window.editProduct = async function (id) {
 window.cancelProductEdit = function () {
     document.getElementById('product-form').reset();
     document.getElementById('prod-edit-id').value = '';
+    currentRecipe = [];
+    renderRecipeList();
     document.getElementById('prod-activo').checked = true;
     document.getElementById('prod-img-preview').style.display = 'none';
     document.getElementById('product-form-title').textContent = 'NUEVO PRODUCTO';
@@ -505,7 +563,7 @@ window.showSection = function (e, sectionId) {
     if (sectionId === 'stock') loadStockData();
     if (sectionId === 'orders') loadOrders();
     if (sectionId === 'marketing') loadMarketingData();
-    if (sectionId === 'productos') loadProductos();
+    if (sectionId === 'productos') { loadProductos(); loadIngredientesForRecipe(); }
     if (sectionId === 'configuracion') loadStoreHours();
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -671,9 +729,46 @@ window.advanceOrder = async function (id, currentState) {
     try {
         const { error } = await client.from('pedidos').update({ estado_pago: next[currentState] }).eq('id', id);
         if (error) throw error;
+        // Descontar ingredientes al confirmar pago (pendiente → aprobado)
+        if (currentState === 'pendiente') {
+            await deductOrderStock(id);
+        }
         loadOrders();
+        if (document.getElementById('stock-section')?.classList.contains('active')) loadStockData();
     } catch (err) { showStatusToast("Error al actualizar pedido"); }
 };
+
+async function deductOrderStock(orderId) {
+    try {
+        const { data: order } = await client.from('pedidos').select('items').eq('id', orderId).single();
+        if (!order || !order.items) return;
+
+        for (const item of order.items) {
+            if (!item.product_id) continue;
+            const { data: producto } = await client.from('productos').select('receta, stock').eq('id', item.product_id).single();
+            if (!producto) continue;
+
+            if (producto.receta && producto.receta.ingredientes && producto.receta.ingredientes.length > 0) {
+                // Producto con receta: descontar ingredientes
+                for (const ri of producto.receta.ingredientes) {
+                    const deductAmount = ri.cantidad * item.qty;
+                    const { data: ing } = await client.from('insumos').select('stock_actual').eq('id', ri.ingrediente_id).single();
+                    if (ing) {
+                        await client.from('insumos').update({
+                            stock_actual: Math.max(0, ing.stock_actual - deductAmount)
+                        }).eq('id', ri.ingrediente_id);
+                    }
+                }
+            } else if (producto.stock !== null && producto.stock !== undefined) {
+                // Producto sin receta (extras): descontar stock del producto
+                await client.from('productos').update({
+                    stock: Math.max(0, producto.stock - item.qty)
+                }).eq('id', item.product_id);
+            }
+        }
+        showStatusToast('STOCK DESCONTADO');
+    } catch (e) { console.error("Error deducting stock:", e); }
+}
 
 window.retreatOrder = async function (id, currentState) {
     const prev = { aprobado: 'pendiente', preparacion: 'aprobado', entregado: 'preparacion' };

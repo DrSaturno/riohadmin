@@ -220,13 +220,34 @@ async function loadMenu() {
             desc: p.descripcion || "",
             img: p.imagen_url || "burger1.png",
             destacado: p.destacado || false,
-            stock: (p.stock !== null && p.stock !== undefined) ? p.stock : 999
+            stock: (p.stock !== null && p.stock !== undefined) ? p.stock : 999,
+            receta: p.receta || null
         }));
+        await checkIngredientAvailability();
         renderMenu(menuData);
         renderExtras(menuData);
     } catch (e) {
         console.error("Error loading menu:", e);
     }
+}
+
+async function checkIngredientAvailability() {
+    if (!supabaseClient) return;
+    try {
+        const { data: insumos } = await supabaseClient.from('insumos').select('id, stock_actual');
+        if (!insumos) return;
+        const ingStock = {};
+        insumos.forEach(i => ingStock[i.id] = i.stock_actual);
+
+        menuData.forEach(item => {
+            if (item.receta && item.receta.ingredientes && item.receta.ingredientes.length > 0) {
+                const canMake = item.receta.ingredientes.every(ri =>
+                    (ingStock[ri.ingrediente_id] || 0) >= ri.cantidad
+                );
+                if (!canMake) item.stock = 0;
+            }
+        });
+    } catch (e) { console.error("Error checking ingredient availability:", e); }
 }
 
 function renderExtras(data) {
@@ -1230,7 +1251,7 @@ window.submitOrder = async function() {
             if (appliedCoupon) {
                 await supabaseClient.from('cupones').update({ usos_actuales: appliedCoupon.usos_actuales + 1 }).eq('id', appliedCoupon.id);
             }
-            await supabaseClient.rpc('descontar_stock_pedido', { p_pedido_id: oData[0].id });
+            // Stock se descuenta en el admin al confirmar pago (kanban: pendiente → aprobado)
 
             await updateClienteStats(total);
             showAlert("PEDIDO RECIBIDO", `¡Pedido #${oData[0].numero_pedido} recibido! ¡Muchas gracias por elegirnos!`);

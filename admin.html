@@ -1151,8 +1151,19 @@
                             <textarea id="prod-descripcion" placeholder="Descripción breve del producto..."></textarea>
                         </div>
                         <div class="input-group full-width">
-                            <label>Ingredientes</label>
-                            <textarea id="prod-ingredientes" placeholder="Carne 150g, Cheddar, Bacon, Pan brioche..."></textarea>
+                            <label>RECETA (Ingredientes)</label>
+                            <div id="recipe-builder">
+                                <div style="display:flex; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
+                                    <select id="recipe-ingredient-select" style="flex:2; min-width:180px; padding:10px; border:3px solid #111; font-weight:700; font-family:inherit;">
+                                        <option value="">Seleccionar ingrediente...</option>
+                                    </select>
+                                    <input type="number" id="recipe-ingredient-qty" placeholder="Cant." step="0.1" style="flex:1; min-width:80px; padding:10px; border:3px solid #111; font-weight:700; font-family:inherit;">
+                                    <button type="button" class="add-btn" onclick="addRecipeIngredient()" style="padding:10px 18px;">+ AGREGAR</button>
+                                </div>
+                                <div id="recipe-list">
+                                    <div style="color:#999; font-size:0.85rem; padding:8px;">Sin ingredientes asignados</div>
+                                </div>
+                            </div>
                         </div>
                         <div class="input-group">
                             <label style="display:flex; align-items:center; gap:8px;">
