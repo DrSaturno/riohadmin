@@ -492,6 +492,8 @@ window.editProduct = async function (id) {
             preview.src = data.imagen_url;
             preview.style.display = 'block';
         }
+        const hint = document.getElementById('prod-img-hint');
+        if (hint) hint.textContent = 'Seleccioná una nueva imagen para reemplazar la actual';
 
         toggleDoblePrice();
         document.getElementById('product-form-title').textContent = 'EDITAR PRODUCTO';
@@ -509,6 +511,8 @@ window.cancelProductEdit = function () {
     renderRecipeList();
     document.getElementById('prod-activo').checked = true;
     document.getElementById('prod-img-preview').style.display = 'none';
+    const hint = document.getElementById('prod-img-hint');
+    if (hint) hint.textContent = 'Formatos: JPG, PNG, WEBP';
     document.getElementById('product-form-title').textContent = 'NUEVO PRODUCTO';
     document.getElementById('product-submit-btn').textContent = 'CREAR PRODUCTO';
     document.getElementById('product-cancel-btn').style.display = 'none';
@@ -985,7 +989,7 @@ window.closeCustomerModal = function () {
 };
 
 // ══════════════════════════════════
-// STOCK
+// STOCK / INSUMOS
 // ══════════════════════════════════
 
 async function loadStockData() {
@@ -993,57 +997,129 @@ async function loadStockData() {
     try {
         const { data, error } = await client.from('insumos').select('*').order('nombre', { ascending: true });
         if (error) throw error;
-        allInsumos = data;
+        allInsumos = data || [];
 
         const tbody = document.getElementById('stock-table-body');
+        if (!tbody) return;
+
         tbody.innerHTML = data.map(i => {
             let sClass = 'status-ok', sText = 'NORMAL';
-            if (i.stock_actual <= i.stock_minimo) { sClass = 'status-low'; sText = 'BAJO'; }
-            if (i.stock_actual <= 3) { sClass = 'status-critical'; sText = 'CRÍTICO'; }
+            if (i.stock_actual <= 0) { sClass = 'status-critical'; sText = 'AGOTADO'; }
+            else if (i.stock_actual <= i.stock_minimo) { sClass = 'status-low'; sText = 'BAJO'; }
             return `<tr>
-                <td>${i.nombre}</td>
-                <td style="font-size:1.1rem; font-weight:900;">${i.stock_actual} <small>${i.unidad}</small></td>
+                <td><strong>${i.nombre}</strong></td>
+                <td style="font-size:1.1rem; font-weight:900;">${i.stock_actual} <small style="color:#888;">${i.unidad}</small></td>
                 <td>${i.stock_minimo}</td>
                 <td><span class="status-badge ${sClass}">${sText}</span></td>
-                <td>
-                    <button class="qty-btn" onclick="quickUpdateStock('${i.id}', 1)">+</button>
-                    <button class="qty-btn" onclick="quickUpdateStock('${i.id}', -1)" style="margin-left:5px;">-</button>
+                <td style="white-space:nowrap;">
+                    <button class="qty-btn" style="padding:7px 10px;" onclick="quickUpdateStock('${i.id}', 1)" title="Sumar 1">
+                        <i data-lucide="plus" style="width:14px; height:14px;"></i>
+                    </button>
+                    <button class="qty-btn" style="padding:7px 10px; margin-left:4px;" onclick="quickUpdateStock('${i.id}', -1)" title="Restar 1">
+                        <i data-lucide="minus" style="width:14px; height:14px;"></i>
+                    </button>
+                    <button class="qty-btn" style="padding:7px 10px; margin-left:4px;" onclick="editInsumoMinimo('${i.id}', ${i.stock_minimo})" title="Editar mínimo">
+                        <i data-lucide="pencil" style="width:14px; height:14px;"></i>
+                    </button>
+                    <button class="qty-btn" style="padding:7px 10px; margin-left:4px; color:var(--primary);" onclick="deleteInsumo('${i.id}')" title="Eliminar">
+                        <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
+                    </button>
                 </td>
             </tr>`;
-        }).join('');
+        }).join('') || '<tr><td colspan="5" style="text-align:center; padding:20px; color:#999;">Sin insumos cargados</td></tr>';
 
         const select = document.getElementById('stock-insumo-select');
-        if (select) select.innerHTML = '<option value="">Seleccionar insumo...</option>' + data.map(i => `<option value="${i.id}">${i.nombre}</option>`).join('');
+        if (select) select.innerHTML = '<option value="">Seleccionar insumo...</option>' + data.map(i => `<option value="${i.id}">${i.nombre} (${i.unidad})</option>`).join('');
+
+        if (typeof lucide !== 'undefined') lucide.createIcons();
     } catch (err) { console.error("Stock Load Error:", err); }
 }
 
+// Crear nuevo insumo
+window.handleNewInsumo = async function (e) {
+    e.preventDefault();
+    const nombre = document.getElementById('new-insumo-nombre').value.trim();
+    const unidad = document.getElementById('new-insumo-unidad').value;
+    const stock_actual = parseFloat(document.getElementById('new-insumo-stock').value) || 0;
+    const stock_minimo = parseFloat(document.getElementById('new-insumo-minimo').value) || 0;
+    if (!nombre) { showStatusToast('Ingresá un nombre'); return; }
+
+    try {
+        const { error } = await client.from('insumos').insert({ nombre, unidad, stock_actual, stock_minimo });
+        if (error) throw error;
+        showStatusToast('INSUMO CREADO');
+        e.target.reset();
+        loadStockData();
+        loadIngredientesForRecipe();
+    } catch (err) {
+        console.error(err);
+        showStatusToast('Error: ' + (err.message || 'No se pudo crear'));
+    }
+};
+
+// Actualizar stock existente
 async function handleStockSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('stock-insumo-select').value;
-    const qty = parseInt(document.getElementById('stock-qty').value);
+    const qty = parseFloat(document.getElementById('stock-qty').value);
     const action = document.getElementById('stock-action').value;
-    if (!id || isNaN(qty)) return;
+    if (!id || isNaN(qty)) { showStatusToast('Seleccioná insumo y cantidad'); return; }
+
     try {
         let newQty = qty;
         if (action === 'add') {
-            const current = allInsumos.find(i => i.id === id);
+            const current = allInsumos.find(i => String(i.id) === String(id));
             newQty = (current ? current.stock_actual : 0) + qty;
+        } else if (action === 'subtract') {
+            const current = allInsumos.find(i => String(i.id) === String(id));
+            newQty = Math.max(0, (current ? current.stock_actual : 0) - qty);
         }
         const { error } = await client.from('insumos').update({ stock_actual: newQty }).eq('id', id);
         if (error) throw error;
-        showStatusToast("¡Stock actualizado!");
+        showStatusToast('STOCK ACTUALIZADO');
         e.target.reset();
         loadStockData();
-    } catch (err) { showStatusToast("Error al actualizar stock."); }
+    } catch (err) { showStatusToast('Error al actualizar stock'); }
 }
 
+// Quick +/- buttons
 window.quickUpdateStock = async function (id, change) {
-    const item = allInsumos.find(i => i.id === id);
+    const item = allInsumos.find(i => String(i.id) === String(id));
     if (!item) return;
     try {
-        await client.from('insumos').update({ stock_actual: Math.max(0, item.stock_actual + change) }).eq('id', id);
+        const newVal = Math.max(0, item.stock_actual + change);
+        await client.from('insumos').update({ stock_actual: newVal }).eq('id', id);
         loadStockData();
     } catch (err) { console.error(err); }
+};
+
+// Editar stock mínimo
+window.editInsumoMinimo = async function (id, currentMin) {
+    const newMin = prompt('Nuevo stock mínimo:', currentMin);
+    if (newMin === null) return;
+    const val = parseFloat(newMin);
+    if (isNaN(val) || val < 0) { showStatusToast('Valor inválido'); return; }
+    try {
+        const { error } = await client.from('insumos').update({ stock_minimo: val }).eq('id', id);
+        if (error) throw error;
+        showStatusToast('MÍNIMO ACTUALIZADO');
+        loadStockData();
+    } catch (err) { showStatusToast('Error al actualizar'); }
+};
+
+// Eliminar insumo
+window.deleteInsumo = async function (id) {
+    if (!confirm('¿Eliminar este insumo? Si está en recetas de productos, podrían quedar inconsistentes.')) return;
+    try {
+        const { error } = await client.from('insumos').delete().eq('id', id);
+        if (error) throw error;
+        showStatusToast('INSUMO ELIMINADO');
+        loadStockData();
+        loadIngredientesForRecipe();
+    } catch (err) {
+        console.error(err);
+        showStatusToast('Error al eliminar');
+    }
 };
 
 // ══════════════════════════════════

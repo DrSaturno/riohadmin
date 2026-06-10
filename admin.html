@@ -1142,9 +1142,10 @@
                             <input type="number" id="prod-stock" placeholder="50" value="0">
                         </div>
                         <div class="input-group">
-                            <label>Imagen</label>
+                            <label>Imagen del producto</label>
+                            <img id="prod-img-preview" class="product-img-preview" style="display:none; cursor:pointer;" alt="Preview" title="Click para cambiar" onclick="document.getElementById('prod-imagen').click()">
                             <input type="file" id="prod-imagen" accept="image/*">
-                            <img id="prod-img-preview" class="product-img-preview" style="display:none" alt="Preview">
+                            <small id="prod-img-hint" style="color:#888; font-size:0.75rem; margin-top:4px;">Formatos: JPG, PNG, WEBP</small>
                         </div>
                         <div class="input-group full-width">
                             <label>Descripción</label>
@@ -1210,8 +1211,46 @@
         <!-- STOCK -->
         <section id="stock-section" class="admin-section">
             <header><h1>Gestión de Insumos</h1></header>
+
+            <!-- CREAR NUEVO INSUMO -->
             <div class="stock-control-panel">
-                <h2 style="margin-bottom:1.5rem; font-family:'Archivo Black'; font-size:1.2rem;">INGRESAR / ACTUALIZAR STOCK</h2>
+                <h2 style="margin-bottom:1.5rem; font-family:'Archivo Black'; font-size:1.2rem;">NUEVO INSUMO</h2>
+                <form id="new-insumo-form" onsubmit="handleNewInsumo(event)">
+                    <div class="product-form-grid">
+                        <div class="input-group">
+                            <label>Nombre</label>
+                            <input type="text" id="new-insumo-nombre" placeholder="Ej: Queso Provolone" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Unidad de medida</label>
+                            <select id="new-insumo-unidad" required>
+                                <option value="unidades">Unidades</option>
+                                <option value="g">Gramos (g)</option>
+                                <option value="kg">Kilogramos (kg)</option>
+                                <option value="ml">Mililitros (ml)</option>
+                                <option value="lt">Litros (lt)</option>
+                                <option value="fetas">Fetas</option>
+                                <option value="plantas">Plantas</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Cantidad Inicial</label>
+                            <input type="number" id="new-insumo-stock" placeholder="0" step="0.1" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Stock Mínimo</label>
+                            <input type="number" id="new-insumo-minimo" placeholder="10" step="0.1" required>
+                        </div>
+                    </div>
+                    <div style="margin-top:1.5rem;">
+                        <button type="submit" class="add-btn"><i data-lucide="plus-circle" style="width:16px; height:16px; vertical-align:middle;"></i> CREAR INSUMO</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- ACTUALIZAR STOCK EXISTENTE -->
+            <div class="stock-control-panel">
+                <h2 style="margin-bottom:1.5rem; font-family:'Archivo Black'; font-size:1.2rem;">ACTUALIZAR STOCK</h2>
                 <form id="stock-form" class="stock-form">
                     <div class="input-group">
                         <label>Insumo</label>
@@ -1219,22 +1258,24 @@
                     </div>
                     <div class="input-group">
                         <label>Cantidad</label>
-                        <input type="number" id="stock-qty" placeholder="0" required>
+                        <input type="number" id="stock-qty" placeholder="0" step="0.1" required>
                     </div>
                     <div class="input-group">
                         <label>Acción</label>
                         <select id="stock-action">
                             <option value="add">SUMAR</option>
+                            <option value="subtract">RESTAR</option>
                             <option value="set">FIJAR TOTAL</option>
                         </select>
                     </div>
                     <button type="submit" class="add-btn">ACTUALIZAR</button>
                 </form>
             </div>
+
             <div class="table-scroll-wrap">
                 <table class="brutalist-table">
                     <thead>
-                        <tr><th>INSUMO</th><th>STOCK</th><th>MÍN.</th><th>ESTADO</th><th>ACC.</th></tr>
+                        <tr><th>INSUMO</th><th>STOCK</th><th>MÍN.</th><th>ESTADO</th><th>ACCIONES</th></tr>
                     </thead>
                     <tbody id="stock-table-body"></tbody>
                 </table>
