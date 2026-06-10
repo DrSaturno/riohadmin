@@ -676,6 +676,40 @@
             margin-bottom: 0.4rem;
         }
 
+        /* ── CRM ── */
+        #crm-section header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .profile-burger-rank {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .profile-burger-rank.top-burger {
+            background: #FFF9C4;
+            border: 2px solid #FBC02D;
+            border-bottom: 2px solid #FBC02D;
+        }
+
+        .profile-burger-rank .rank-name {
+            font-weight: 700;
+            font-size: 0.88rem;
+        }
+
+        .profile-burger-rank .rank-count {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 0.9rem;
+        }
+
         /* ── PRODUCT FORM ── */
         .product-form-grid {
             display: grid;
@@ -841,6 +875,10 @@
             .login-logo { font-size: 2.5rem; }
 
             .kmt-btn { font-size: 0.6rem; padding: 7px 3px; }
+
+            #crm-section header { flex-direction: column; align-items: flex-start; gap: 0.7rem; }
+            #crm-section header h1 { font-size: 1.1rem; }
+            #crm-search { min-width: 100% !important; font-size: 0.85rem; }
         }
 
         @media (max-width: 480px) {
@@ -916,6 +954,11 @@
             <li class="nav-item">
                 <a class="nav-link" onclick="showSection(event, 'marketing')">
                     <i data-lucide="megaphone"></i> MARKETING Y OFERTAS
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" onclick="showSection(event, 'crm')">
+                    <i data-lucide="contact"></i> CRM
                 </a>
             </li>
             <li class="nav-item">
@@ -1341,6 +1384,60 @@
             </div>
         </section>
 
+        <!-- CRM -->
+        <section id="crm-section" class="admin-section">
+            <header>
+                <h1>CRM — Clientes</h1>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <input type="text" id="crm-search" placeholder="Buscar por nombre, email o teléfono..."
+                        style="padding:10px 14px; border:3px solid #111; font-weight:700; font-family:inherit; min-width:260px;"
+                        oninput="filterCRMTable()">
+                    <button class="qty-btn" onclick="loadCRMData()" style="padding:10px 16px;">
+                        <i data-lucide="refresh-cw" style="width:14px; height:14px; vertical-align:middle;"></i> REFRESCAR
+                    </button>
+                </div>
+            </header>
+
+            <div class="stats-grid" style="margin-bottom:1.5rem;">
+                <div class="stat-card">
+                    <h3>Total Clientes</h3>
+                    <div class="value" id="crm-total-clients">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Con Pedidos</h3>
+                    <div class="value" id="crm-with-orders">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Ticket Promedio</h3>
+                    <div class="value" id="crm-avg-ticket">$0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Registros Nuevos (30d)</h3>
+                    <div class="value" id="crm-new-30d">0</div>
+                </div>
+            </div>
+
+            <div class="table-scroll-wrap">
+                <table class="brutalist-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>NOMBRE</th>
+                            <th>WHATSAPP</th>
+                            <th>EMAIL</th>
+                            <th>PEDIDOS</th>
+                            <th>TOTAL GASTADO</th>
+                            <th>ÚLTIMO PEDIDO</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="crm-table-body">
+                        <tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">Cargando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <!-- CONFIGURACIÓN -->
         <section id="configuracion-section" class="admin-section">
             <header><h1>Configuración</h1></header>
@@ -1393,6 +1490,7 @@
                     Historial de Pedidos
                 </h3>
                 <div id="profile-orders">Cargando...</div>
+                <div id="profile-burgers"></div>
             </div>
         </div>
     </div>

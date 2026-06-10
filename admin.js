@@ -569,6 +569,7 @@ window.showSection = function (e, sectionId) {
     if (sectionId === 'marketing') loadMarketingData();
     if (sectionId === 'productos') { loadProductos(); loadIngredientesForRecipe(); }
     if (sectionId === 'configuracion') loadStoreHours();
+    if (sectionId === 'crm') loadCRMData();
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
 };
@@ -937,6 +938,8 @@ window.openCustomerProfile = async function (userId, nombre, whatsapp, email) {
         `${whatsapp ? `📱 ${whatsapp}` : ''} ${email ? `&nbsp;|&nbsp; ✉️ ${email}` : ''}`;
     document.getElementById('profile-stats').innerHTML = '<div style="color:#999; font-size:0.85rem; grid-column:1/-1;">Cargando historial...</div>';
     document.getElementById('profile-orders').innerHTML = '';
+    const burgersReset = document.getElementById('profile-burgers');
+    if (burgersReset) burgersReset.innerHTML = '';
 
     if (!client || !userId || userId === 'null') {
         document.getElementById('profile-stats').innerHTML = '<div style="color:#999; grid-column:1/-1;">Sin user_id asociado.</div>';
@@ -958,9 +961,11 @@ window.openCustomerProfile = async function (userId, nombre, whatsapp, email) {
             return a;
         }, 0);
 
+        const avgTicket = pedidos.length > 0 ? Math.round(totalGastado / pedidos.length) : 0;
+
         document.getElementById('profile-stats').innerHTML = `
             <div class="profile-stat"><div class="ps-label">Pedidos</div><div class="ps-value">${pedidos.length}</div></div>
-            <div class="profile-stat"><div class="ps-label">Hamburguesas</div><div class="ps-value">${totalBurgers}</div></div>
+            <div class="profile-stat"><div class="ps-label">Ticket Promedio</div><div class="ps-value" style="font-size:1rem;">$${avgTicket.toLocaleString()}</div></div>
             <div class="profile-stat"><div class="ps-label">Total Gastado</div><div class="ps-value" style="font-size:1rem;">$${totalGastado.toLocaleString()}</div></div>
         `;
 
@@ -980,6 +985,36 @@ window.openCustomerProfile = async function (userId, nombre, whatsapp, email) {
                     <div style="text-align:right; font-family:'Archivo Black';">$${(p.total || 0).toLocaleString()}</div>
                 </div>`;
             }).join('');
+
+        // Burger ranking
+        const burgerCounts = {};
+        pedidos.forEach(p => {
+            (p.items || []).forEach(i => {
+                if (i.title) {
+                    const key = i.title;
+                    burgerCounts[key] = (burgerCounts[key] || 0) + (i.qty || 1);
+                }
+            });
+        });
+        const sortedBurgers = Object.entries(burgerCounts).sort((a, b) => b[1] - a[1]);
+
+        const burgersEl = document.getElementById('profile-burgers');
+        if (burgersEl) {
+            if (sortedBurgers.length > 0) {
+                burgersEl.innerHTML =
+                    `<h3 style="font-family:'Archivo Black'; font-size:0.85rem; text-transform:uppercase; margin:1.5rem 0 0.8rem; padding-bottom:0.5rem; border-bottom:3px solid #111;">
+                        Ranking de Favoritos
+                    </h3>` +
+                    sortedBurgers.map(([name, count], idx) =>
+                        `<div class="profile-burger-rank${idx === 0 ? ' top-burger' : ''}">
+                            <span class="rank-name">${idx === 0 ? '&#127942; ' : (idx + 1) + '. '}${name}</span>
+                            <span class="rank-count">${count}x</span>
+                        </div>`
+                    ).join('');
+            } else {
+                burgersEl.innerHTML = '';
+            }
+        }
 
     } catch (err) { console.error("Profile error:", err); }
 };
@@ -1217,4 +1252,99 @@ window.deleteOffer = async function (id, table) {
         await client.from(table).delete().eq('id', id);
         loadMarketingData();
     } catch (err) { console.error(err); }
+};
+
+// ══════════════════════════════════
+// CRM — CLIENTES
+// ══════════════════════════════════
+
+let allCRMClients = [];
+
+async function loadCRMData() {
+    if (!client) return;
+    try {
+        // Load all clients
+        const { data: clientes, error } = await client
+            .from('clientes')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        allCRMClients = clientes || [];
+
+        // Calculate stats
+        const total = allCRMClients.length;
+        const withOrders = allCRMClients.filter(c => (c.pedidos_count || 0) > 0).length;
+        const totalGastado = allCRMClients.reduce((a, c) => a + (c.total_gastado || 0), 0);
+        const totalPedidos = allCRMClients.reduce((a, c) => a + (c.pedidos_count || 0), 0);
+        const avgTicket = totalPedidos > 0 ? Math.round(totalGastado / totalPedidos) : 0;
+
+        // New in last 30 days
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const newClients = allCRMClients.filter(c => c.created_at && new Date(c.created_at) >= thirtyDaysAgo).length;
+
+        document.getElementById('crm-total-clients').textContent = total;
+        document.getElementById('crm-with-orders').textContent = withOrders;
+        document.getElementById('crm-avg-ticket').textContent = `$${avgTicket.toLocaleString()}`;
+        document.getElementById('crm-new-30d').textContent = newClients;
+
+        // Sort by total_gastado descending for table display
+        const sorted = [...allCRMClients].sort((a, b) => (b.total_gastado || 0) - (a.total_gastado || 0));
+        renderCRMTable(sorted);
+
+    } catch (err) {
+        console.error("CRM Load Error:", err);
+        showStatusToast("Error cargando CRM");
+    }
+}
+
+function renderCRMTable(clientes) {
+    const tbody = document.getElementById('crm-table-body');
+    if (!tbody) return;
+
+    if (!clientes.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">Sin clientes registrados</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = clientes.map((c, i) => {
+        const lastOrder = c.ultima_compra
+            ? new Date(c.ultima_compra).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+            : '—';
+        const nombre = c.nombre || 'S/N';
+        const safeNombre = nombre.replace(/'/g, "\\'");
+        return `<tr>
+            <td style="font-family:'Archivo Black'; text-align:center;">${i + 1}</td>
+            <td style="font-weight:700;">${nombre}</td>
+            <td>${c.whatsapp || '—'}</td>
+            <td style="font-size:0.82rem;">${c.email || '—'}</td>
+            <td style="font-weight:900; text-align:center;">${c.pedidos_count || 0}</td>
+            <td style="font-weight:900; font-family:'Archivo Black';">$${(c.total_gastado || 0).toLocaleString()}</td>
+            <td style="font-size:0.82rem;">${lastOrder}</td>
+            <td>
+                <button class="qty-btn" style="font-size:0.7rem; padding:6px 14px;" onclick="openCustomerProfile('${c.user_id}','${safeNombre}','${c.whatsapp || ''}','${c.email || ''}')">
+                    <i data-lucide="eye" style="width:14px; height:14px; vertical-align:middle;"></i> VER
+                </button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+window.filterCRMTable = function () {
+    const query = (document.getElementById('crm-search')?.value || '').toLowerCase().trim();
+    if (!query) {
+        const sorted = [...allCRMClients].sort((a, b) => (b.total_gastado || 0) - (a.total_gastado || 0));
+        renderCRMTable(sorted);
+        return;
+    }
+    const filtered = allCRMClients
+        .filter(c =>
+            (c.nombre || '').toLowerCase().includes(query) ||
+            (c.email || '').toLowerCase().includes(query) ||
+            (c.whatsapp || '').includes(query)
+        )
+        .sort((a, b) => (b.total_gastado || 0) - (a.total_gastado || 0));
+    renderCRMTable(filtered);
 };
