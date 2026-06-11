@@ -188,6 +188,7 @@ async function fetchMasterStatus() {
             if (isMasterOnline !== newValue) {
                 isMasterOnline = newValue;
                 renderMenu(menuData);
+                renderExtras(menuData);
             }
         }
     } catch (e) { console.error("Error fetching master status:", e); }
@@ -203,6 +204,7 @@ function subscribeToStoreChanges() {
                 if (isMasterOnline !== newValue) {
                     isMasterOnline = newValue;
                     renderMenu(menuData);
+                    renderExtras(menuData);
                     console.log('Store status updated via Realtime:', newValue ? 'OPEN' : 'CLOSED');
                 }
             }
@@ -292,10 +294,14 @@ function renderExtras(data) {
     if (!grid) return;
     const items = data.filter(p => p.category === 'extras');
     if (!items.length) { grid.closest('.extras-section').style.display = 'none'; return; }
+    const status = getStoreStatus();
+    const storeClosed = !status.open || !isMasterOnline;
     grid.innerHTML = items.map(p => {
         const soldOut = p.stock <= 0;
+        const disabled = soldOut || storeClosed;
+        const closedStyle = 'background:#888; border-color:#888; cursor:not-allowed;';
         return `
-        <div class="extra-card ${soldOut ? 'closed-item' : ''}">
+        <div class="extra-card ${disabled ? 'closed-item' : ''}">
             <div class="extra-card-img">
                 <img src="${p.img}" alt="${p.title}" loading="lazy">
             </div>
@@ -304,8 +310,8 @@ function renderExtras(data) {
                 <p class="extra-card-price">$${p.simple.toLocaleString()}</p>
                 ${soldOut ? '<p style="color:var(--primary); font-weight:900; font-size:0.8rem;">AGOTADO</p>' : ''}
             </div>
-            <button class="extra-add-btn" ${soldOut ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : `onclick="addExtraToCart('${p.id}')"`}>
-                ${soldOut ? 'AGOTADO' : '+ AGREGAR'}
+            <button class="extra-add-btn" ${disabled ? `disabled style="${closedStyle} opacity:0.5;"` : `onclick="addExtraToCart('${p.id}')"`}>
+                ${soldOut ? 'AGOTADO' : storeClosed ? 'NEGOCIO CERRADO' : '+ AGREGAR'}
             </button>
         </div>`;
     }).join('');

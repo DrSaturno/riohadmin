@@ -2851,13 +2851,19 @@ footer {
 
     .menu-section {
         background-image: url('vertical002.jpg');
-        background-size: 100% 100%;
-        padding: 12rem 0 4rem;
+        background-size: cover;
+        background-position: top center;
+        background-repeat: no-repeat;
+        padding-top: 14rem;
+        padding-bottom: 4rem;
     }
 
     .extras-section {
         background-image: url('vertical003.jpg');
-        background-size: 100% 100%;
-        padding: 12rem 0 4rem;
+        background-size: cover;
+        background-position: top center;
+        background-repeat: no-repeat;
+        padding-top: 14rem;
+        padding-bottom: 4rem;
     }
 }
