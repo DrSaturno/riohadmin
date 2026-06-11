@@ -57,6 +57,10 @@ let ordersAutoRefreshTimer = null;
 let currentRecipe = [];
 let allIngredientesForRecipe = [];
 
+// ── QZ TRAY STATE ──
+let _qzConnected = false;
+let _selectedPrinter = localStorage.getItem('rioh_printer') || null;
+
 // ── MOBILE MENU ──
 window.toggleMobileMenu = function () {
     document.getElementById('sidebar').classList.toggle('open');
@@ -81,6 +85,7 @@ async function initApp() {
         loadStoreHours();
         initProductImagePreview();
         loadIngredientesForRecipe();
+        initQZTray(); // intentar conectar ticketera silenciosamente
         if (typeof lucide !== 'undefined') lucide.createIcons();
     } else {
         alert("ERROR CRÍTICO: Supabase SDK no encontrado.");
@@ -94,6 +99,137 @@ function initForms() {
     const marketingForm = document.getElementById('marketing-form');
     if (marketingForm) marketingForm.onsubmit = handleMarketingSubmit;
 }
+
+// ── QZ TRAY INIT ──
+async function initQZTray() {
+    if (typeof qz === 'undefined') { updateQZStatusUI(false); return; }
+
+    // Modo sin firma digital (uso local/privado)
+    qz.security.setCertificatePromise(function(resolve) { resolve(); });
+    qz.security.setSignatureAlgorithm('SHA512');
+    qz.security.setSignaturePromise(function(toSign, resolve) { resolve(); });
+
+    // Suprimir errores de QZ en consola durante el intento de conexión
+    qz.api.setErrorCallbacks(function() {});
+    qz.api.setClosedCallbacks(function() {
+        _qzConnected = false;
+        updateQZStatusUI(false);
+    });
+
+    try {
+        await qz.websocket.connect({ retries: 1, delay: 500 });
+        _qzConnected = true;
+        if (!_selectedPrinter) {
+            _selectedPrinter = await qz.printers.getDefault();
+            localStorage.setItem('rioh_printer', _selectedPrinter);
+        }
+        updateQZStatusUI(true);
+        console.log('[QZ Tray] Conectado. Impresora:', _selectedPrinter);
+    } catch (e) {
+        _qzConnected = false;
+        updateQZStatusUI(false);
+        console.log('[QZ Tray] No disponible (esperado si la app no está abierta)');
+    }
+}
+
+function updateQZStatusUI(connected) {
+    const dot = document.getElementById('qz-indicator');
+    const btn = document.getElementById('qz-status-btn');
+    if (!dot) return;
+    if (connected) {
+        dot.textContent = '🟢';
+        dot.title = `QZ Tray conectado — ${_selectedPrinter || 'impresora default'}`;
+        if (btn) btn.title = `Ticketera conectada: ${_selectedPrinter || 'default'}`;
+    } else {
+        dot.textContent = '🔴';
+        if (btn) btn.title = 'Ticketera desconectada — click para configurar';
+    }
+}
+
+// Abrir panel de configuración de ticketera
+window.openTicketeraConfig = async function () {
+    document.getElementById('ticketera-modal').style.display = 'flex';
+    renderTicketeraStatus();
+    if (_qzConnected) await loadPrintersForTicketera();
+};
+
+window.closeTicketeraConfig = function (e) {
+    if (!e || e.target === document.getElementById('ticketera-modal')) {
+        document.getElementById('ticketera-modal').style.display = 'none';
+    }
+};
+
+function renderTicketeraStatus() {
+    const statusEl = document.getElementById('qz-status-block');
+    if (_qzConnected) {
+        statusEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:12px;background:#e8f5e9;border:2px solid #2e7d32;">
+            <span style="font-size:1.4rem;">🟢</span>
+            <div>
+                <div style="font-weight:700;font-size:0.9rem;color:#1b5e20;">QZ TRAY CONECTADO</div>
+                <div style="font-size:0.78rem;color:#388e3c;">Los tickets se imprimen automáticamente sin diálogos</div>
+            </div>
+        </div>`;
+        document.getElementById('qz-printer-block').style.display = 'block';
+        document.getElementById('qz-offline-block').style.display = 'none';
+    } else {
+        statusEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:12px;background:#ffebee;border:2px solid #c62828;">
+            <span style="font-size:1.4rem;">🔴</span>
+            <div>
+                <div style="font-weight:700;font-size:0.9rem;color:#b71c1c;">QZ TRAY NO DETECTADO</div>
+                <div style="font-size:0.78rem;color:#c62828;">Instalá QZ Tray para imprimir sin diálogos</div>
+            </div>
+        </div>`;
+        document.getElementById('qz-printer-block').style.display = 'none';
+        document.getElementById('qz-offline-block').style.display = 'block';
+    }
+}
+
+async function loadPrintersForTicketera() {
+    try {
+        const printers = await qz.printers.find();
+        const select = document.getElementById('qz-printer-select');
+        if (!select) return;
+        const saved = _selectedPrinter || '';
+        select.innerHTML = printers.map(p =>
+            `<option value="${p}" ${p === saved ? 'selected' : ''}>${p}</option>`
+        ).join('');
+    } catch (e) {
+        console.error('[QZ] Error cargando impresoras:', e);
+    }
+}
+
+window.saveTicketeraConfig = function () {
+    const select = document.getElementById('qz-printer-select');
+    if (!select || !select.value) return;
+    _selectedPrinter = select.value;
+    localStorage.setItem('rioh_printer', _selectedPrinter);
+    showStatusToast(`✅ Impresora guardada: ${_selectedPrinter}`);
+    updateQZStatusUI(true);
+};
+
+window.retryQZConnect = async function () {
+    const btn = document.querySelector('#qz-offline-block button[onclick="retryQZConnect()"]');
+    if (btn) btn.textContent = 'CONECTANDO...';
+    await initQZTray();
+    renderTicketeraStatus();
+    if (_qzConnected) await loadPrintersForTicketera();
+    if (btn) btn.textContent = 'REINTENTAR';
+};
+
+window.testPrintQZ = function () {
+    const testOrder = {
+        numero_pedido: 'TEST',
+        created_at: new Date().toISOString(),
+        total: 9999,
+        estado_pago: 'aprobado',
+        metodo_entrega: 'delivery',
+        direccion_entrega: 'Av. RIOH. 1234',
+        clientes: { nombre: 'Ticket de Prueba', whatsapp: '' },
+        items: [{ qty: 1, title: 'MALBEC RICH', type: 'Simple', extras: ['Extra Bacon'], pricePerUnit: 9999 }],
+        nota: ''
+    };
+    printTicket(testOrder, 'Efectivo');
+};
 
 // ── CASH REGISTER SOUND ──
 function playCashRegisterSound() {
@@ -2034,25 +2170,147 @@ window.printCurrentOrderTicket = function () {
     else showStatusToast('No hay pedido seleccionado');
 };
 
-// Genera la ventana del ticket y dispara window.print()
+// Router principal: QZ Tray si está disponible, sino ventana emergente
 window.printTicket = function (order, metodoPagoOverride) {
+    if (_qzConnected && typeof qz !== 'undefined' && qz.websocket.isActive()) {
+        printTicketWithQZ(order, metodoPagoOverride);
+    } else {
+        printTicketBrowser(order, metodoPagoOverride);
+    }
+};
+
+// ── MODO QZ TRAY (impresión silenciosa ESC/POS) ──
+async function printTicketWithQZ(order, metodoPagoOverride) {
+    try {
+        if (!qz.websocket.isActive()) {
+            await qz.websocket.connect({ retries: 2, delay: 1000 });
+            _qzConnected = true;
+            updateQZStatusUI(true);
+        }
+        const printer = _selectedPrinter || await qz.printers.getDefault();
+        const config = qz.configs.create(printer);
+        const data = buildESCPOSTicket(order, metodoPagoOverride);
+        await qz.print(config, [{ type: 'raw', format: 'plain', data }]);
+        showStatusToast('🖨️ Ticket enviado → ' + printer);
+    } catch (err) {
+        console.error('[QZ] Error al imprimir:', err);
+        _qzConnected = false;
+        updateQZStatusUI(false);
+        showStatusToast('⚠ QZ Tray error — usando ventana emergente');
+        printTicketBrowser(order, metodoPagoOverride);
+    }
+}
+
+// ── MODO BROWSER (ventana emergente + window.print) ──
+function printTicketBrowser(order, metodoPagoOverride) {
     const html = buildReceiptHTML(order, metodoPagoOverride);
     const win = window.open('', '_blank', 'width=360,height=720,toolbar=0,menubar=0,scrollbars=1,status=0,resizable=1');
     if (!win) {
-        showStatusToast('⚠ Habilitá los popups en el navegador para imprimir tickets');
+        showStatusToast('⚠ Habilitá los popups para imprimir tickets');
         return;
     }
     win.document.open();
     win.document.write(html);
     win.document.close();
-    win.onload = function () {
-        setTimeout(() => { win.focus(); win.print(); }, 400);
-    };
-    // Fallback si onload ya disparó
-    setTimeout(() => {
-        if (win && !win.closed) { win.focus(); win.print(); }
-    }, 1200);
-};
+    win.onload = function () { setTimeout(() => { win.focus(); win.print(); }, 400); };
+    setTimeout(() => { if (win && !win.closed) { win.focus(); win.print(); } }, 1200);
+}
+
+// ── ESC/POS TICKET BUILDER ──
+function buildESCPOSTicket(o, metodoPagoOverride) {
+    const E = '\x1B'; const G = '\x1D';
+    const INIT        = E + '\x40';
+    const CENTER      = E + '\x61\x01';
+    const LEFT        = E + '\x61\x00';
+    const BOLD_ON     = E + '\x45\x01';
+    const BOLD_OFF    = E + '\x45\x00';
+    const WIDE        = G + '\x21\x11';   // doble ancho + alto
+    const NORMAL      = G + '\x21\x00';   // tamaño normal
+    const CUT         = G + '\x56\x41\x05'; // corte parcial + feed 5mm
+    const FEED        = E + '\x64\x04';   // avance 4 líneas
+
+    const W = 42; // caracteres por línea (80mm papel, Font A)
+    const SEP1 = '-'.repeat(W);
+    const SEP2 = '='.repeat(W);
+
+    // Alinear columnas izq/der
+    function row(l, r) {
+        const sp = W - l.length - r.length;
+        return l + ' '.repeat(Math.max(1, sp)) + r;
+    }
+
+    // Sólo ASCII (compatibilidad universal de code pages)
+    function safe(s) {
+        return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7E]/g, '');
+    }
+
+    const d = new Date(o.created_at);
+    const DAYS = ['Dom','Lun','Mar','Mie','Jue','Vie','Sab'];
+    const fecha = `${DAYS[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    const nombre  = safe(o.clientes?.nombre || 'S/N').substring(0, 32);
+    const tel     = safe(o.clientes?.whatsapp || '');
+    const esRetiro = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup';
+    const dir     = safe(o.direccion_entrega || '').substring(0, 40);
+    const metodo  = safe(metodoPagoOverride || {
+        pendiente: 'Efectivo', pendiente_efectivo: 'Efectivo',
+        pendiente_transferencia: 'Transferencia', aprobado: 'Pago confirmado',
+        preparacion: 'Pago confirmado', entregado: 'Pago confirmado'
+    }[o.estado_pago] || 'Efectivo');
+
+    let t = '';
+    t += INIT;
+
+    // ── CABECERA ──
+    t += CENTER + WIDE + 'RIOH.\n' + NORMAL;
+    t += 'BURGER\n';
+    t += SEP2 + '\n';
+    t += BOLD_ON + `PEDIDO #${o.numero_pedido || '---'}\n` + BOLD_OFF;
+    t += fecha + '\n' + SEP1 + '\n';
+
+    // ── CLIENTE ──
+    t += LEFT + BOLD_ON + nombre + '\n' + BOLD_OFF;
+    if (tel) t += tel + '\n';
+
+    // ── ENTREGA ──
+    t += '\n' + BOLD_ON + (esRetiro ? 'RETIRO EN LOCAL' : 'DELIVERY') + '\n' + BOLD_OFF;
+    if (!esRetiro && dir) t += dir + '\n';
+
+    t += SEP2 + '\n';
+    t += BOLD_ON + 'PRODUCTOS:\n' + BOLD_OFF + '\n';
+
+    // ── ITEMS ──
+    for (const i of (o.items || [])) {
+        const qty = parseInt(i.qty) || 1;
+        const precio = (i.pricePerUnit || 0) * qty;
+        const title = safe(i.title.toUpperCase()).substring(0, 24);
+        const right = precio > 0 ? `$${precio.toLocaleString('es-AR')}` : '';
+        t += BOLD_ON + row(`${qty}x ${title}`, right) + '\n' + BOLD_OFF;
+        if (i.type) t += `   (${safe(i.type)})\n`;
+        if (i.extras?.length) t += `   +${safe(i.extras.join(', ')).substring(0, 36)}\n`;
+    }
+
+    // ── NOTA ──
+    if (o.nota) {
+        t += SEP1 + '\n';
+        t += `"${safe(o.nota).substring(0, 80)}"\n`;
+    }
+
+    t += SEP1 + '\n';
+
+    // ── TOTAL ──
+    const totalStr = `$${(o.total || 0).toLocaleString('es-AR')}`;
+    t += BOLD_ON + row('TOTAL:', totalStr) + '\n' + BOLD_OFF;
+    t += metodo + '\n';
+
+    t += SEP2 + '\n';
+
+    // ── PIE ──
+    t += CENTER + BOLD_ON + '* GRACIAS POR TU PEDIDO! *\n' + BOLD_OFF;
+    t += 'rioh.com.ar\n';
+    t += FEED + CUT;
+
+    return t;
+}
 
 // Construye el HTML del ticket para 80mm de papel térmico
 function buildReceiptHTML(o, metodoPagoOverride) {

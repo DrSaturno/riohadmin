@@ -12,6 +12,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js" onerror="console.log('[QZ Tray] Librería no cargada')"></script>
     <style>
         :root {
             --primary: #E31C25;
@@ -828,6 +829,77 @@
         }
         .order-print-btn:hover { opacity: 0.7; }
 
+        /* ── QZ TRAY BUTTON ── */
+        .qz-status-btn {
+            display: flex; align-items: center; gap: 5px;
+            background: white;
+            border: var(--border-width) solid var(--text-dark);
+            padding: 5px 10px;
+            font-size: 0.72rem; font-weight: 700;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            text-transform: uppercase; letter-spacing: 0.05em;
+            box-shadow: 2px 2px 0 var(--text-dark);
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        .qz-status-btn:hover { transform: translate(-1px,-1px); box-shadow: 3px 3px 0 var(--text-dark); }
+        #qz-indicator { font-size: 9px; }
+
+        /* ── TICKETERA CONFIG MODAL ── */
+        #ticketera-modal {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.65);
+            z-index: 2100;
+            align-items: center; justify-content: center;
+        }
+        .ticketera-card {
+            background: white;
+            border: 3px solid var(--text-dark);
+            box-shadow: 8px 8px 0 var(--text-dark);
+            width: min(440px, 94vw);
+            max-height: 90vh; overflow-y: auto;
+        }
+        .ticketera-header {
+            background: var(--text-dark); color: white;
+            padding: 1rem 1.3rem;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .ticketera-header h3 {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1.05rem; letter-spacing: 0.03em;
+        }
+        .ticketera-body { padding: 1.4rem; }
+        .ticketera-label {
+            font-size: 0.78rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.06em;
+            display: block; margin-bottom: 6px; margin-top: 1.2rem;
+        }
+        .ticketera-select {
+            width: 100%; border: 2px solid #111;
+            padding: 9px 10px; font-size: 0.9rem;
+            font-family: 'Inter', sans-serif;
+            background: white; cursor: pointer;
+            appearance: none; -webkit-appearance: none;
+        }
+        .ticketera-btn-row { display: flex; gap: 8px; margin-top: 12px; }
+        .ticketera-btn {
+            flex: 1; padding: 10px 8px;
+            font-weight: 700; cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            text-transform: uppercase; font-size: 0.78rem;
+            letter-spacing: 0.05em; border: none;
+            text-align: center; text-decoration: none;
+            display: block;
+        }
+        .ticketera-btn-dark { background: #111; color: white; }
+        .ticketera-btn-red  { background: var(--primary); color: white; }
+        .ticketera-btn:hover { opacity: 0.85; }
+        .ticketera-instructions {
+            font-size: 0.82rem; line-height: 1.8;
+            padding-left: 1.2rem; margin: 10px 0 0;
+        }
+
         .customer-modal-close {
             background: var(--primary);
             border: 2px solid white;
@@ -1197,6 +1269,9 @@
             <header>
                 <h1>Pedidos</h1>
                 <div class="orders-header-controls">
+                    <button id="qz-status-btn" class="qz-status-btn" onclick="openTicketeraConfig()" title="Configurar ticketera">
+                        <span id="qz-indicator">⚪</span> Ticketera
+                    </button>
                     <span class="auto-refresh-badge">AUTO ⟳ 30s</span>
                     <button class="refresh-btn" onclick="manualRefreshOrders()">
                         <i data-lucide="refresh-cw" style="width:14px;"></i> REFRESCAR
@@ -1811,6 +1886,56 @@
                 </h3>
                 <div id="profile-orders">Cargando...</div>
                 <div id="profile-burgers"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TICKETERA CONFIG MODAL -->
+    <div id="ticketera-modal" onclick="closeTicketeraConfig(event)">
+        <div class="ticketera-card" onclick="event.stopPropagation()">
+            <div class="ticketera-header">
+                <h3>🖨️ TICKETERA</h3>
+                <button class="customer-modal-close" onclick="closeTicketeraConfig()">✕</button>
+            </div>
+            <div class="ticketera-body">
+
+                <!-- Estado de conexión -->
+                <div id="qz-status-block"></div>
+
+                <!-- Panel si está CONECTADO -->
+                <div id="qz-printer-block" style="display:none;">
+                    <label class="ticketera-label">Impresora seleccionada</label>
+                    <select id="qz-printer-select" class="ticketera-select"></select>
+                    <div class="ticketera-btn-row">
+                        <button class="ticketera-btn ticketera-btn-dark" onclick="saveTicketeraConfig()">💾 GUARDAR</button>
+                        <button class="ticketera-btn ticketera-btn-red" onclick="testPrintQZ()">🖨️ TEST TICKET</button>
+                    </div>
+                    <div style="margin-top:14px; padding:10px; background:#f5f5f5; border-left:3px solid #111; font-size:0.8rem; line-height:1.6;">
+                        <strong>Tip:</strong> Los tickets se imprimen automáticamente al confirmar pago. También podés imprimir manualmente con el botón 🖨️ en cada comanda.
+                    </div>
+                </div>
+
+                <!-- Panel si está DESCONECTADO -->
+                <div id="qz-offline-block" style="display:none;">
+                    <p style="font-size:0.85rem; margin-top:14px; line-height:1.6;">
+                        <strong>QZ Tray</strong> es una app gratuita que permite imprimir tickets directamente desde el navegador, sin diálogos de impresión.
+                    </p>
+                    <label class="ticketera-label">Pasos de instalación</label>
+                    <ol class="ticketera-instructions">
+                        <li>Descargá QZ Tray desde <strong>qz.io</strong> → <em>Download</em></li>
+                        <li>Instalá y abrí (aparece como ícono 🖨️ en la barra del sistema)</li>
+                        <li>En Chrome, abrí <strong>https://localhost:8181</strong> → click "Avanzado" → "Continuar de todas formas" para aceptar el certificado local</li>
+                        <li>Volvé acá y hacé click en "REINTENTAR"</li>
+                    </ol>
+                    <div class="ticketera-btn-row" style="margin-top:16px;">
+                        <a href="https://qz.io/download/" target="_blank" class="ticketera-btn ticketera-btn-dark">⬇ DESCARGAR QZ TRAY</a>
+                        <button class="ticketera-btn ticketera-btn-red" onclick="retryQZConnect()">↺ REINTENTAR</button>
+                    </div>
+                    <div style="margin-top:14px; padding:10px; background:#fff3e0; border-left:3px solid #ff9800; font-size:0.78rem; line-height:1.6;">
+                        <strong>Sin QZ Tray</strong> el sistema usa el método alternativo: abre una ventana emergente con el ticket y el diálogo de impresión del sistema.
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
