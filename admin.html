@@ -665,6 +665,121 @@
             font-family: 'Inter', sans-serif;
         }
 
+        /* ── ORDER DETAIL MODAL ── */
+        #order-detail-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 3000;
+            overflow-y: auto;
+            padding: 2rem 1rem;
+            -webkit-overflow-scrolling: touch;
+        }
+        .order-detail-card {
+            max-width: 520px;
+            margin: 0 auto;
+            background: white;
+            border: 3px solid var(--text-dark);
+            box-shadow: 10px 10px 0 var(--primary);
+        }
+        .order-detail-header {
+            background: var(--text-dark);
+            color: white;
+            padding: 1.2rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .order-detail-header h2 {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1.4rem;
+            letter-spacing: 0.02em;
+        }
+        .order-detail-estado {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 4px 10px;
+            border: 2px solid rgba(255,255,255,0.5);
+        }
+        .order-detail-body { padding: 0; }
+        .order-detail-section {
+            padding: 1rem 1.5rem;
+            border-bottom: 2px dashed #eee;
+        }
+        .order-detail-section:last-child { border-bottom: none; }
+        .order-detail-section-title {
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #999;
+            margin-bottom: 0.6rem;
+        }
+        .order-item-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .order-item-row:last-child { border-bottom: none; }
+        .order-item-qty {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1.1rem;
+            min-width: 28px;
+            color: var(--primary);
+        }
+        .order-item-info { flex: 1; }
+        .order-item-name {
+            font-weight: 700;
+            font-size: 0.95rem;
+        }
+        .order-item-type {
+            font-size: 0.78rem;
+            color: #888;
+        }
+        .order-item-extras {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-top: 2px;
+        }
+        .order-item-price {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+        .order-total-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background: var(--text-dark);
+            color: white;
+        }
+        .order-total-label {
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .order-total-value {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1.6rem;
+        }
+        .order-detail-actions {
+            padding: 1rem 1.5rem;
+            display: flex;
+            gap: 8px;
+            background: #f4f4f4;
+        }
+        .kanban-card { cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; }
+        .kanban-card:hover { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--text-dark); }
+        .kanban-card:active { transform: translate(0,0); box-shadow: 2px 2px 0 var(--text-dark); }
+
         /* ── CUSTOMER PROFILE MODAL ── */
         #customer-modal {
             display: none;
@@ -1618,6 +1733,51 @@
         </section>
 
     </main>
+
+    <!-- ORDER DETAIL MODAL -->
+    <div id="order-detail-modal" onclick="closeOrderDetailModal(event)">
+        <div class="order-detail-card" onclick="event.stopPropagation()">
+            <div class="order-detail-header">
+                <div>
+                    <h2 id="od-numero">#---</h2>
+                    <div style="font-size:0.75rem; color:#aaa; margin-top:2px;" id="od-fecha">—</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span class="order-detail-estado" id="od-estado">—</span>
+                    <button class="customer-modal-close" onclick="closeOrderDetailModal()">✕</button>
+                </div>
+            </div>
+            <div class="order-detail-body">
+                <div class="order-detail-section">
+                    <div class="order-detail-section-title">Cliente</div>
+                    <div id="od-cliente" style="font-weight:700; font-size:1rem;">—</div>
+                    <div id="od-contacto" style="font-size:0.8rem; color:#666; margin-top:3px;">—</div>
+                </div>
+                <div class="order-detail-section">
+                    <div class="order-detail-section-title">Entrega</div>
+                    <div id="od-entrega" style="font-weight:700;">—</div>
+                    <div id="od-direccion" style="font-size:0.85rem; color:#555; margin-top:2px;">—</div>
+                </div>
+                <div class="order-detail-section">
+                    <div class="order-detail-section-title">Productos</div>
+                    <div id="od-items">—</div>
+                </div>
+                <div id="od-nota-wrap" class="order-detail-section" style="display:none;">
+                    <div class="order-detail-section-title">Nota del cliente</div>
+                    <div id="od-nota" style="font-size:0.9rem; font-style:italic; color:#555;">—</div>
+                </div>
+                <div class="order-detail-section" style="border-bottom:none;">
+                    <div class="order-detail-section-title">Pago</div>
+                    <div id="od-pago" style="font-weight:700; font-size:0.9rem;">—</div>
+                </div>
+            </div>
+            <div class="order-total-row">
+                <span class="order-total-label">Total del pedido</span>
+                <span class="order-total-value" id="od-total">$0</span>
+            </div>
+            <div class="order-detail-actions" id="od-actions"></div>
+        </div>
+    </div>
 
     <!-- CUSTOMER PROFILE MODAL -->
     <div id="customer-modal">

@@ -699,7 +699,7 @@ function renderKanban(orders) {
                     <button class="card-btn card-btn-back" style="flex:1;" onclick="retreatOrder('${o.id}','${estado}')">${prevLabel[estado]}</button>
                    </div>`;
 
-            return `<div class="kanban-card">
+            return `<div class="kanban-card" onclick="openOrderDetail('${o.id}')">
                 <div class="kanban-card-header">
                     <strong style="font-family:'Archivo Black'; font-size:0.88rem;">#${o.numero_pedido || '---'}</strong>
                     <small style="color:#888; white-space:nowrap;">${hora}</small>
@@ -709,7 +709,7 @@ function renderKanban(orders) {
                 <div style="font-size:0.75rem; color:#666; margin-top:2px;">${entrega}</div>
                 <div class="kanban-items">${items}</div>
                 <div class="kanban-total">$${(o.total || 0).toLocaleString()}</div>
-                ${actionRow}
+                <div onclick="event.stopPropagation()">${actionRow}</div>
             </div>`;
         }).join('');
     }
@@ -717,8 +717,114 @@ function renderKanban(orders) {
     // ── CALCULAR Y MOSTRAR MÉTRICAS ──
     updatePedidosMetrics(orders);
 
+    // Guardar para acceso rápido del modal
+    _lastKanbanOrders = orders;
+
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
+
+// ── ORDER DETAIL MODAL ──
+let _lastKanbanOrders = [];
+
+window.openOrderDetail = function (orderId) {
+    const o = _lastKanbanOrders.find(x => x.id === orderId);
+    if (!o) return;
+
+    const estadoLabels = {
+        pendiente: { label: 'NUEVO', color: '#BF360C' },
+        pendiente_efectivo: { label: 'NUEVO (EFECTIVO)', color: '#BF360C' },
+        pendiente_transferencia: { label: 'NUEVO (TRANSF.)', color: '#BF360C' },
+        aprobado: { label: 'PAGO OK', color: '#1B5E20' },
+        preparacion: { label: 'EN PREPARACIÓN', color: '#0D47A1' },
+        entregado: { label: 'ENTREGADO ✓', color: '#212121' }
+    };
+    const pagoLabels = {
+        pendiente: 'Pendiente de confirmación',
+        pendiente_efectivo: 'Efectivo — pendiente',
+        pendiente_transferencia: 'Transferencia — pendiente',
+        aprobado: 'Pago confirmado',
+        preparacion: 'Pago confirmado',
+        entregado: 'Pago confirmado'
+    };
+
+    const est = estadoLabels[o.estado_pago] || { label: o.estado_pago || 'NUEVO', color: '#111' };
+    const d = new Date(o.created_at);
+    const fecha = d.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) +
+        ' — ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+
+    document.getElementById('od-numero').textContent = `#${o.numero_pedido || '---'}`;
+    document.getElementById('od-fecha').textContent = fecha;
+
+    const estadoEl = document.getElementById('od-estado');
+    estadoEl.textContent = est.label;
+    estadoEl.style.background = est.color;
+    estadoEl.style.color = 'white';
+    estadoEl.style.borderColor = 'rgba(255,255,255,0.4)';
+
+    // Cliente
+    const nombre = o.clientes?.nombre || 'Cliente S/N';
+    const tel = o.clientes?.whatsapp || '';
+    const email = o.clientes?.email || '';
+    document.getElementById('od-cliente').textContent = nombre;
+    document.getElementById('od-contacto').textContent = [tel, email].filter(Boolean).join('  ·  ') || '—';
+
+    // Entrega
+    const esRetiro = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup';
+    document.getElementById('od-entrega').textContent = esRetiro ? '🏠 Retiro en local' : '🛵 Delivery';
+    document.getElementById('od-direccion').textContent = esRetiro ? '' : (o.direccion_entrega || 'Sin dirección');
+
+    // Nota
+    const notaWrap = document.getElementById('od-nota-wrap');
+    if (o.nota) {
+        notaWrap.style.display = 'block';
+        document.getElementById('od-nota').textContent = o.nota;
+    } else {
+        notaWrap.style.display = 'none';
+    }
+
+    // Items
+    const itemsHtml = (o.items || []).map(i => {
+        const extrasCost = ((i.extras || []).length > 0) ? ` <span style="font-size:0.75rem; color:#999;">(+extras)</span>` : '';
+        return `<div class="order-item-row">
+            <div class="order-item-qty">${i.qty}×</div>
+            <div class="order-item-info">
+                <div class="order-item-name">${i.title}${extrasCost}</div>
+                ${i.type ? `<div class="order-item-type">${i.type}</div>` : ''}
+                ${(i.extras && i.extras.length) ? `<div class="order-item-extras">+ ${i.extras.join(' · ')}</div>` : ''}
+            </div>
+            <div class="order-item-price">$${((i.pricePerUnit || 0) * (parseInt(i.qty) || 1)).toLocaleString()}</div>
+        </div>`;
+    }).join('');
+    document.getElementById('od-items').innerHTML = itemsHtml || '<div style="color:#999;">Sin items</div>';
+
+    // Pago
+    document.getElementById('od-pago').textContent = pagoLabels[o.estado_pago] || '—';
+
+    // Total
+    document.getElementById('od-total').textContent = `$${(o.total || 0).toLocaleString()}`;
+
+    // Botones de acción (duplicados del kanban pero dentro del modal)
+    const nextLabel = { pendiente: 'CONFIRMAR PAGO', pendiente_efectivo: 'CONFIRMAR PAGO', pendiente_transferencia: 'CONFIRMAR PAGO', aprobado: 'EN PREPARACIÓN', preparacion: 'ENTREGADO ✓' };
+    const prevLabel = { aprobado: '← Nuevo', preparacion: '← Pago OK', entregado: '← En prep.' };
+    const estado = o.estado_pago || 'pendiente';
+    let actionsHtml = '';
+    if (prevLabel[estado]) {
+        actionsHtml += `<button class="card-btn card-btn-back" style="flex:1;" onclick="retreatOrder('${o.id}','${estado}'); closeOrderDetailModal();">${prevLabel[estado]}</button>`;
+    }
+    if (nextLabel[estado]) {
+        actionsHtml += `<button class="card-btn card-btn-advance" style="flex:2;" onclick="advanceOrder('${o.id}','${estado}'); closeOrderDetailModal();">${nextLabel[estado]} →</button>`;
+    }
+    document.getElementById('od-actions').innerHTML = actionsHtml;
+
+    document.getElementById('order-detail-modal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+};
+
+window.closeOrderDetailModal = function (e) {
+    if (e && e.target !== document.getElementById('order-detail-modal')) return;
+    document.getElementById('order-detail-modal').style.display = 'none';
+    document.body.style.overflow = '';
+};
 
 // ── MÉTRICAS DE PEDIDOS ──
 let _lastOrdersForReport = [];
