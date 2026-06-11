@@ -725,10 +725,12 @@ function renderKanban(orders) {
 
 // ── ORDER DETAIL MODAL ──
 let _lastKanbanOrders = [];
+let _currentModalOrder = null;
 
 window.openOrderDetail = function (orderId) {
     const o = _lastKanbanOrders.find(x => x.id === orderId);
     if (!o) return;
+    _currentModalOrder = o;
 
     const estadoLabels = {
         pendiente: { label: 'NUEVO', color: '#BF360C' },
@@ -1149,6 +1151,19 @@ window.advanceOrder = async function (id, _uiState) {
             showStatusToast('PAGO CONFIRMADO — STOCK DESCONTADO');
         } else {
             showStatusToast(`Pedido movido a ${nextState.toUpperCase()}`);
+        }
+
+        // 🖨️ Imprimir ticket al confirmar pago (pendiente → aprobado)
+        if (nextState === 'aprobado') {
+            const metodoPago = {
+                pendiente: 'Efectivo',
+                pendiente_efectivo: 'Efectivo',
+                pendiente_transferencia: 'Transferencia bancaria'
+            }[actualState] || 'Efectivo';
+            const { data: fullOrder } = await client.from('pedidos')
+                .select('*, clientes(nombre, whatsapp, email)')
+                .eq('id', id).single();
+            if (fullOrder) printTicket(fullOrder, metodoPago);
         }
 
         loadOrders();
@@ -2008,3 +2023,177 @@ window.filterCRMTable = function () {
 
     renderCRMTable(filtered);
 };
+
+// ══════════════════════════════════════════════════════════
+// 🖨️  TICKETERA — IMPRESIÓN DE TICKETS PARA IMPRESORA TÉRMICA
+// ══════════════════════════════════════════════════════════
+
+// Imprimir el pedido actualmente abierto en el modal
+window.printCurrentOrderTicket = function () {
+    if (_currentModalOrder) printTicket(_currentModalOrder);
+    else showStatusToast('No hay pedido seleccionado');
+};
+
+// Genera la ventana del ticket y dispara window.print()
+window.printTicket = function (order, metodoPagoOverride) {
+    const html = buildReceiptHTML(order, metodoPagoOverride);
+    const win = window.open('', '_blank', 'width=360,height=720,toolbar=0,menubar=0,scrollbars=1,status=0,resizable=1');
+    if (!win) {
+        showStatusToast('⚠ Habilitá los popups en el navegador para imprimir tickets');
+        return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.onload = function () {
+        setTimeout(() => { win.focus(); win.print(); }, 400);
+    };
+    // Fallback si onload ya disparó
+    setTimeout(() => {
+        if (win && !win.closed) { win.focus(); win.print(); }
+    }, 1200);
+};
+
+// Construye el HTML del ticket para 80mm de papel térmico
+function buildReceiptHTML(o, metodoPagoOverride) {
+    const d = new Date(o.created_at);
+    const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const fecha = `${diasSemana[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} — ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+
+    const nombre = o.clientes?.nombre || 'Cliente S/N';
+    const tel = o.clientes?.whatsapp || o.clientes?.phone || '';
+    const esRetiro = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup';
+    const direccion = esRetiro ? '' : (o.direccion_entrega || '');
+
+    const metodoPagoLabels = {
+        pendiente: 'Efectivo',
+        pendiente_efectivo: 'Efectivo',
+        pendiente_transferencia: 'Transferencia bancaria',
+        aprobado: 'Pago confirmado ✓',
+        preparacion: 'Pago confirmado ✓',
+        entregado: 'Pago confirmado ✓'
+    };
+    const metodoPago = metodoPagoOverride || metodoPagoLabels[o.estado_pago] || 'Efectivo';
+
+    // Construir filas de items
+    const itemsHtml = (o.items || []).map(i => {
+        const qty = parseInt(i.qty) || 1;
+        const precio = (i.pricePerUnit || 0) * qty;
+        const tipoStr = i.type ? ` <span style="font-weight:normal;font-size:9px;">(${i.type})</span>` : '';
+        const extrasStr = (i.extras && i.extras.length)
+            ? `<div style="padding-left:14px;font-size:9px;color:#444;">+ ${i.extras.join(' · ')}</div>`
+            : '';
+        const precioStr = precio > 0 ? `$${precio.toLocaleString('es-AR')}` : '';
+        return `<div style="margin-bottom:5px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:4px;">
+                <div style="flex:1;"><span style="font-weight:bold;">${qty}x ${i.title.toUpperCase()}${tipoStr}</span></div>
+                <div style="font-weight:bold;white-space:nowrap;">${precioStr}</div>
+            </div>
+            ${extrasStr}
+        </div>`;
+    }).join('');
+
+    const notaHtml = o.nota
+        ? `<hr style="border:none;border-top:1px dashed #000;margin:5px 0;">
+           <div style="font-size:9px;font-style:italic;color:#555;">📝 "${o.nota}"</div>`
+        : '';
+
+    const contactoHtml = tel
+        ? `<div style="font-size:9px;">📱 ${tel}</div>`
+        : '';
+    const direccionHtml = direccion
+        ? `<div style="font-size:9px;margin-top:2px;">${direccion}</div>`
+        : '';
+
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>Ticket RIOH. #${o.numero_pedido || ''}</title>
+<style>
+  @page { size: 80mm auto; margin: 4mm 3mm; }
+  @media print {
+    body { width: 74mm !important; }
+    .no-print { display: none !important; }
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 11px;
+    width: 74mm;
+    max-width: 340px;
+    background: #fff;
+    color: #000;
+    padding: 4px 0;
+  }
+  hr.dash  { border:none; border-top:1px dashed #000; margin:5px 0; }
+  hr.solid { border:none; border-top:2px solid #000; margin:6px 0; }
+</style>
+</head>
+<body>
+
+<!-- BOTÓN IMPRIMIR (solo en pantalla) -->
+<div class="no-print" style="text-align:center;padding:8px;background:#111;color:#fff;cursor:pointer;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;margin-bottom:8px;" onclick="window.print()">
+  🖨️ IMPRIMIR TICKET
+</div>
+
+<!-- CABECERA -->
+<div style="text-align:center;margin-bottom:4px;">
+  <div style="font-family:'Arial Black',Arial,sans-serif;font-size:30px;font-weight:900;letter-spacing:4px;line-height:1;">RIOH.</div>
+  <div style="font-size:9px;letter-spacing:5px;margin-top:1px;">BURGER</div>
+</div>
+
+<hr class="dash">
+
+<div style="text-align:center;">
+  <div style="font-family:'Arial Black',Arial,sans-serif;font-size:15px;font-weight:900;">PEDIDO #${o.numero_pedido || '---'}</div>
+  <div style="font-size:10px;margin-top:1px;">${fecha}</div>
+</div>
+
+<hr class="dash">
+
+<!-- CLIENTE -->
+<div style="margin-bottom:4px;">
+  <div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#666;">Cliente</div>
+  <div style="font-weight:bold;font-size:12px;">${nombre}</div>
+  ${contactoHtml}
+</div>
+
+<!-- ENTREGA -->
+<div style="margin-bottom:2px;">
+  <div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#666;">Entrega</div>
+  <div style="font-weight:bold;font-size:12px;border:2px solid #000;display:inline-block;padding:1px 6px;margin-top:2px;">${esRetiro ? '🏠 RETIRO EN LOCAL' : '🛵 DELIVERY'}</div>
+  ${direccionHtml}
+</div>
+
+<hr class="solid">
+
+<!-- PRODUCTOS -->
+<div style="font-family:'Arial Black',Arial,sans-serif;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;">Productos</div>
+
+${itemsHtml}
+
+${notaHtml}
+
+<hr class="dash">
+
+<!-- TOTAL -->
+<div style="display:flex;justify-content:space-between;align-items:center;font-family:'Arial Black',Arial,sans-serif;font-size:16px;font-weight:900;margin:3px 0;">
+  <span>TOTAL</span>
+  <span>$${(o.total || 0).toLocaleString('es-AR')}</span>
+</div>
+
+<div style="font-size:10px;margin-top:2px;">💳 ${metodoPago}</div>
+
+<hr class="solid">
+
+<!-- PIE -->
+<div style="text-align:center;font-size:10px;">
+  <div style="font-family:'Arial Black',Arial,sans-serif;font-size:11px;font-weight:900;">★ ¡GRACIAS POR TU PEDIDO! ★</div>
+  <div style="margin-top:2px;">rioh.com.ar</div>
+</div>
+
+</body>
+</html>`;
+}
