@@ -312,9 +312,10 @@ function renderExtras(data) {
         const soldOut = p.stock <= 0;
         const disabled = soldOut || storeClosed;
         const closedStyle = 'background:#888; border-color:#888; cursor:not-allowed;';
+        const zoomedOut = p.title.toLowerCase().includes('papas');
         return `
         <div class="extra-card ${disabled ? 'closed-item' : ''}">
-            <div class="extra-card-img">
+            <div class="extra-card-img${zoomedOut ? ' extra-img-contain' : ''}">
                 <img src="${p.img}" alt="${p.title}" loading="lazy">
             </div>
             <div class="extra-card-info">
