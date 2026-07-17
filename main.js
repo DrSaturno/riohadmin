@@ -1196,6 +1196,26 @@ window.closeCheckoutModal = () => {
     setTimeout(() => modal.style.display = 'none', 400);
 };
 
+// Reset completo de la pantalla tras confirmar un pedido: carrito vacío,
+// todos los modales del flujo cerrados y formulario limpio ("pantalla a cero")
+function resetOrderFlowUI() {
+    ['checkout-modal', 'cart-modal', 'upsell-modal'].forEach(id => {
+        const m = document.getElementById(id);
+        if (m) { m.classList.remove('active'); m.style.display = 'none'; }
+    });
+    updateOrderBar();
+    ['cust-name', 'cust-phone', 'cust-email', 'cust-address'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const couponInput = document.getElementById('coupon-input');
+    if (couponInput) couponInput.value = '';
+    const couponMsg = document.getElementById('coupon-message');
+    if (couponMsg) couponMsg.innerText = '';
+    const applyBtn = document.getElementById('apply-coupon-btn');
+    if (applyBtn) { applyBtn.innerText = 'APLICAR'; applyBtn.onclick = window.applyCoupon; }
+}
+
 // Auto-fill customer data by phone
 document.addEventListener('DOMContentLoaded', () => {
     const phoneInput = document.getElementById('cust-phone');
@@ -1277,7 +1297,6 @@ window.submitOrder = async function() {
             const custName = document.getElementById('cust-name').value.trim();
             const custEmail = document.getElementById('cust-email').value.trim();
             const custAddress = document.getElementById('cust-address')?.value?.trim() || '';
-            const custZona = currentDeliveryMethod === 'delivery' ? document.getElementById('shipping-zone').options[document.getElementById('shipping-zone').selectedIndex].text : null;
             let clientId = null;
 
             // Try to find existing client: by user_id, then phone, then email
@@ -1358,9 +1377,11 @@ window.submitOrder = async function() {
             // Stock se descuenta en el admin al confirmar pago (kanban: pendiente → aprobado)
 
             await updateClienteStats(total, clientId);
-            showAlert("PEDIDO RECIBIDO", `¡Pedido #${oData[0].numero_pedido} recibido! ¡Muchas gracias por elegirnos!`);
+            const pedidoNum = oData[0].numero_pedido;
+            // Vaciar carrito y resetear TODA la pantalla a cero antes de mostrar el aviso
             cart = []; appliedCoupon = null;
-            updateOrderBar(); closeCheckoutModal();
+            resetOrderFlowUI();
+            showAlert("PEDIDO RECIBIDO", `¡Pedido #${pedidoNum} recibido! ¡Muchas gracias por elegirnos!`);
         } catch (err) {
             console.error(err);
             showAlert("ERROR", "Hubo un problema al procesar tu pedido. Por favor, revisá los datos e intentá de nuevo.");
