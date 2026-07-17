@@ -1,0 +1,40 @@
+# RIOH. — Configuración Apache para SiteGround
+
+AddDefaultCharset UTF-8
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Forzar HTTPS
+    RewriteCond %{HTTPS} !=on
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
+
+    # /admin → admin.html (panel de administración)
+    RewriteRule ^admin/?$ admin.html [L]
+</IfModule>
+
+# Compresión gzip
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json image/svg+xml
+</IfModule>
+
+# Caché de archivos estáticos
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/webp "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+    ExpiresByType text/css "access plus 1 week"
+    ExpiresByType application/javascript "access plus 1 week"
+    # HTML siempre fresco (para que los cambios se vean al instante)
+    ExpiresByType text/html "access plus 0 seconds"
+</IfModule>
+
+# No listar el contenido de directorios
+Options -Indexes
+
+# Bloquear acceso a archivos internos del proyecto
+<FilesMatch "^(vercel\.json|.*\.sql|\.git.*)$">
+    Require all denied
+</FilesMatch>

@@ -560,9 +560,15 @@ window.doForgotPassword = async () => {
     setAuthError('auth-error-login', 'Te enviamos un email para restablecer tu contraseña.', true);
 };
 
-async function updateClienteStats(orderTotal) {
-    if (!currentUser) return;
-    const { data: cliente } = await supabaseClient.from('clientes').select('id, pedidos_count, total_gastado').eq('user_id', currentUser.id).maybeSingle();
+async function updateClienteStats(orderTotal, clientId) {
+    let cliente = null;
+    if (clientId) {
+        const { data } = await supabaseClient.from('clientes').select('id, pedidos_count, total_gastado').eq('id', clientId).maybeSingle();
+        cliente = data;
+    } else if (currentUser) {
+        const { data } = await supabaseClient.from('clientes').select('id, pedidos_count, total_gastado').eq('user_id', currentUser.id).maybeSingle();
+        cliente = data;
+    }
     if (cliente) {
         await supabaseClient.from('clientes').update({
             pedidos_count: (cliente.pedidos_count || 0) + 1,
@@ -1241,6 +1247,15 @@ window.submitOrder = async function() {
     const form = document.getElementById('checkout-form');
     if (form && !form.checkValidity()) { form.reportValidity(); return; }
 
+    // Delivery requiere dirección
+    if (currentDeliveryMethod === 'delivery') {
+        const addr = document.getElementById('cust-address')?.value?.trim() || '';
+        if (!addr) {
+            showAlert("FALTA LA DIRECCIÓN", "Ingresá la dirección de entrega para el delivery, o elegí retiro por el local.");
+            return;
+        }
+    }
+
     const finalizarBtn = document.getElementById('finalizar-btn');
     if (finalizarBtn) { finalizarBtn.disabled = true; finalizarBtn.innerHTML = '<span class="loading-spinner"></span> PROCESANDO...'; }
     const payMethod = selectedPayMethod;
@@ -1343,7 +1358,7 @@ window.submitOrder = async function() {
             }
             // Stock se descuenta en el admin al confirmar pago (kanban: pendiente → aprobado)
 
-            await updateClienteStats(total);
+            await updateClienteStats(total, clientId);
             showAlert("PEDIDO RECIBIDO", `¡Pedido #${oData[0].numero_pedido} recibido! ¡Muchas gracias por elegirnos!`);
             cart = []; appliedCoupon = null;
             updateOrderBar(); closeCheckoutModal();
