@@ -64,7 +64,7 @@ let _selectedPrinter = localStorage.getItem('rioh_printer') || null;
 // ── IMAGE HELPER ──
 function getProductImage(productNameOrUrl) {
     if (productNameOrUrl) {
-        if (productNameOrUrl.toLowerCase().includes('papas')) return 'papas.jpeg';
+        if (productNameOrUrl.toLowerCase().includes('papas')) return 'papas.png';
         if (productNameOrUrl.toLowerCase().includes('nuggets')) return 'nuggets.png';
     }
     return 'burger1.png';

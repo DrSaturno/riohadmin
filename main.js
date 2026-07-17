@@ -247,7 +247,7 @@ async function loadMenu() {
             let imgUrl = p.imagen_url;
             if (!imgUrl) {
                 if (p.nombre && p.nombre.toLowerCase().includes('papas')) {
-                    imgUrl = 'papas.jpeg';
+                    imgUrl = 'papas.png';
                 } else if (p.nombre && p.nombre.toLowerCase().includes('nuggets')) {
                     imgUrl = 'nuggets.png';
                 } else {
@@ -312,10 +312,9 @@ function renderExtras(data) {
         const soldOut = p.stock <= 0;
         const disabled = soldOut || storeClosed;
         const closedStyle = 'background:#888; border-color:#888; cursor:not-allowed;';
-        const zoomedOut = p.title.toLowerCase().includes('papas');
         return `
         <div class="extra-card ${disabled ? 'closed-item' : ''}">
-            <div class="extra-card-img${zoomedOut ? ' extra-img-contain' : ''}">
+            <div class="extra-card-img">
                 <img src="${p.img}" alt="${p.title}" loading="lazy">
             </div>
             <div class="extra-card-info">

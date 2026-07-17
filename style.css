@@ -1977,11 +1977,6 @@ footer {
     display: block;
 }
 
-.extra-card-img.extra-img-contain img {
-    object-fit: contain;
-    padding: 10px;
-}
-
 .extra-card-info {
     padding: 1.2rem 1.2rem 0.5rem;
     flex: 1;
