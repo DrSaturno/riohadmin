@@ -2312,7 +2312,7 @@ function buildESCPOSTicket(o, metodoPagoOverride) {
 
     // ── PIE ──
     t += CENTER + BOLD_ON + '* GRACIAS POR TU PEDIDO! *\n' + BOLD_OFF;
-    t += 'rioh.com.ar\n';
+    t += 'riohburgers.com.ar\n';
     t += FEED + CUT;
 
     return t;
@@ -2455,7 +2455,7 @@ ${notaHtml}
 <!-- PIE -->
 <div style="text-align:center;font-size:10px;">
   <div style="font-family:'Arial Black',Arial,sans-serif;font-size:11px;font-weight:900;">★ ¡GRACIAS POR TU PEDIDO! ★</div>
-  <div style="margin-top:2px;">rioh.com.ar</div>
+  <div style="margin-top:2px;">riohburgers.com.ar</div>
 </div>
 
 </body>
