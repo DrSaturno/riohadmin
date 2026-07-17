@@ -1283,36 +1283,38 @@ window.advanceOrder = async function (id, _uiState) {
         const nextState = next[actualState];
         if (!nextState) return;
 
-        // Actualizar estado
-        const { error } = await client.from('pedidos').update({ estado_pago: nextState }).eq('id', id);
+        const isPending = actualState === 'pendiente' || actualState === 'pendiente_efectivo' || actualState === 'pendiente_transferencia';
+        const willDeductStock = isPending && !orderCheck.stock_descontado;
+
+        // Un solo UPDATE: estado + flag de stock juntos (evita una segunda espera)
+        const updatePayload = { estado_pago: nextState };
+        if (willDeductStock) updatePayload.stock_descontado = true;
+        const { error } = await client.from('pedidos').update(updatePayload).eq('id', id);
         if (error) throw error;
 
-        // Descontar stock SOLO si: viene de pendiente Y no se descontó antes
-        const isPending = actualState === 'pendiente' || actualState === 'pendiente_efectivo' || actualState === 'pendiente_transferencia';
-        if (isPending && !orderCheck.stock_descontado) {
-            await deductOrderStock(id);
-            // Marcar como descontado para evitar doble deducción
-            await client.from('pedidos').update({ stock_descontado: true }).eq('id', id);
-            showStatusToast('PAGO CONFIRMADO — STOCK DESCONTADO');
-        } else {
-            showStatusToast(`Pedido movido a ${nextState.toUpperCase()}`);
+        // Mover la ficha YA — no esperar a que termine el descuento de stock ni la impresión
+        loadOrders();
+        showStatusToast(willDeductStock ? 'PAGO CONFIRMADO — STOCK DESCONTADO' : `Pedido movido a ${nextState.toUpperCase()}`);
+
+        // Descontar stock en segundo plano (no bloquea la UI)
+        if (willDeductStock) {
+            deductOrderStock(id).then(() => {
+                if (document.getElementById('stock-section')?.classList.contains('active')) loadStockData();
+            });
         }
 
-        // 🖨️ Imprimir ticket al confirmar pago (pendiente → aprobado)
+        // 🖨️ Imprimir ticket al confirmar pago (pendiente → aprobado), también en segundo plano
         if (nextState === 'aprobado') {
             const metodoPago = {
                 pendiente: 'Efectivo',
                 pendiente_efectivo: 'Efectivo',
                 pendiente_transferencia: 'Transferencia bancaria'
             }[actualState] || 'Efectivo';
-            const { data: fullOrder } = await client.from('pedidos')
+            client.from('pedidos')
                 .select('*, clientes(nombre, whatsapp, email)')
-                .eq('id', id).single();
-            if (fullOrder) printTicket(fullOrder, metodoPago);
+                .eq('id', id).single()
+                .then(({ data: fullOrder }) => { if (fullOrder) printTicket(fullOrder, metodoPago); });
         }
-
-        loadOrders();
-        if (document.getElementById('stock-section')?.classList.contains('active')) loadStockData();
     } catch (err) {
         console.error("Error advancing order:", err);
         showStatusToast("Error al actualizar pedido");
@@ -1331,16 +1333,20 @@ async function deductOrderStock(orderId) {
         const { data: order } = await client.from('pedidos').select('items').eq('id', orderId).single();
         if (!order || !order.items) { console.warn("deductOrderStock: no items found for order", orderId); return; }
 
-        console.log("═══ DEDUCCIÓN DE STOCK — Pedido:", orderId, "═══");
-        console.log("Items del pedido:", JSON.stringify(order.items, null, 2));
+        const productIds = [...new Set(order.items.filter(i => i.product_id).map(i => i.product_id))];
 
-        // Precargar TODOS los insumos para poder buscar extras por nombre
-        const { data: allInsumos } = await client.from('insumos').select('id, nombre, stock_actual');
+        // Precargar insumos y productos EN PARALELO (en vez de una consulta por item)
+        const [{ data: allInsumos }, { data: allProductos }] = await Promise.all([
+            client.from('insumos').select('id, nombre, stock_actual'),
+            productIds.length ? client.from('productos').select('id, receta, stock').in('id', productIds) : Promise.resolve({ data: [] })
+        ]);
+
         const insumosMap = {};
-        if (allInsumos) {
-            allInsumos.forEach(ins => { insumosMap[String(ins.id)] = ins; });
-        }
-        console.log("Insumos cargados:", allInsumos ? allInsumos.map(i => `${i.id}:${i.nombre}`).join(', ') : 'ninguno');
+        (allInsumos || []).forEach(ins => { insumosMap[String(ins.id)] = ins; });
+        const productosMap = {};
+        (allProductos || []).forEach(p => { productosMap[String(p.id)] = p; });
+
+        console.log("═══ DEDUCCIÓN DE STOCK — Pedido:", orderId, "═══");
 
         // Acumular todas las deducciones antes de aplicarlas
         const insumoDeductions = {};   // { insumo_id: totalToDeduct }
@@ -1351,9 +1357,7 @@ async function deductOrderStock(orderId) {
             const qty = parseInt(item.qty) || 1;
             const isDoble = (item.type || '').toLowerCase() === 'doble';
 
-            console.log(`\n── Item: ${item.title} | Tipo: ${item.type || '-'} (isDoble=${isDoble}) | Qty: ${qty} | Extras: ${JSON.stringify(item.extras || [])}`);
-
-            const { data: producto } = await client.from('productos').select('receta, stock').eq('id', item.product_id).single();
+            const producto = productosMap[String(item.product_id)];
             if (!producto) { console.warn("  ⚠ Producto no encontrado:", item.product_id); continue; }
 
             // --- 1) Deducciones por RECETA del producto ---
@@ -1400,31 +1404,24 @@ async function deductOrderStock(orderId) {
             }
         }
 
-        // --- 3) Aplicar todas las deducciones acumuladas ---
-        console.log("\n── Aplicando deducciones ──");
+        // --- 3) Aplicar todas las deducciones acumuladas EN PARALELO ---
+        // (ya tenemos el stock actual en memoria de la precarga, no hace falta re-consultarlo)
+        const insumoUpdates = Object.entries(insumoDeductions).map(([insumoId, totalDeduct]) => {
+            const current = insumosMap[insumoId]?.stock_actual ?? 0;
+            const newStock = Math.max(0, current - totalDeduct);
+            console.log(`  ✅ INSUMO "${insumosMap[insumoId]?.nombre || insumoId}": ${current} - ${totalDeduct} = ${newStock}`);
+            return client.from('insumos').update({ stock_actual: newStock }).eq('id', insumoId);
+        });
 
-        // Insumos
-        for (const [insumoId, totalDeduct] of Object.entries(insumoDeductions)) {
-            const { data: ing } = await client.from('insumos').select('stock_actual').eq('id', insumoId).single();
-            if (ing) {
-                const newStock = Math.max(0, ing.stock_actual - totalDeduct);
-                const nombre = insumosMap[insumoId] ? insumosMap[insumoId].nombre : insumoId;
-                console.log(`  ✅ INSUMO "${nombre}" (${insumoId}): ${ing.stock_actual} - ${totalDeduct} = ${newStock}`);
-                await client.from('insumos').update({ stock_actual: newStock }).eq('id', insumoId);
-            }
-        }
+        const productoUpdates = Object.entries(productoDeductions).map(([prodId, totalDeduct]) => {
+            const current = productosMap[prodId]?.stock ?? 0;
+            const newStock = Math.max(0, current - totalDeduct);
+            console.log(`  ✅ PRODUCTO ${prodId}: ${current} - ${totalDeduct} = ${newStock}`);
+            return client.from('productos').update({ stock: newStock }).eq('id', prodId);
+        });
 
-        // Productos sin receta
-        for (const [prodId, totalDeduct] of Object.entries(productoDeductions)) {
-            const { data: prod } = await client.from('productos').select('stock').eq('id', prodId).single();
-            if (prod) {
-                const newStock = Math.max(0, prod.stock - totalDeduct);
-                console.log(`  ✅ PRODUCTO ${prodId}: ${prod.stock} - ${totalDeduct} = ${newStock}`);
-                await client.from('productos').update({ stock: newStock }).eq('id', prodId);
-            }
-        }
-
-        console.log("\n═══ DEDUCCIÓN COMPLETA — Pedido:", orderId, "═══");
+        await Promise.all([...insumoUpdates, ...productoUpdates]);
+        console.log("═══ DEDUCCIÓN COMPLETA — Pedido:", orderId, "═══");
     } catch (e) { console.error("Error deducting stock:", e); }
 }
 
