@@ -61,6 +61,15 @@ let allIngredientesForRecipe = [];
 let _qzConnected = false;
 let _selectedPrinter = localStorage.getItem('rioh_printer') || null;
 
+// ── IMAGE HELPER ──
+function getProductImage(productNameOrUrl) {
+    if (productNameOrUrl) {
+        if (productNameOrUrl.toLowerCase().includes('papas')) return 'papas.jpeg';
+        if (productNameOrUrl.toLowerCase().includes('nuggets')) return 'nuggets.png';
+    }
+    return 'burger1.png';
+}
+
 // ── MOBILE MENU ──
 window.toggleMobileMenu = function () {
     document.getElementById('sidebar').classList.toggle('open');
@@ -541,7 +550,7 @@ window.handleProductSubmit = async function (e) {
             if (error) throw error;
             showStatusToast('PRODUCTO ACTUALIZADO');
         } else {
-            if (!imagen_url) payload.imagen_url = 'burger1.png';
+            if (!imagen_url) payload.imagen_url = getProductImage(payload.nombre);
             const { error } = await client.from('productos').insert(payload);
             if (error) throw error;
             showStatusToast('PRODUCTO CREADO');
@@ -577,7 +586,7 @@ function renderProductosTable(productos) {
     }
 
     tbody.innerHTML = productos.map(p => {
-        const imgSrc = p.imagen_url || 'burger1.png';
+        const imgSrc = p.imagen_url || getProductImage(p.nombre);
         const statusBadge = p.activo
             ? '<span class="status-badge status-ok">ACTIVO</span>'
             : '<span class="status-badge status-inactive">INACTIVO</span>';
@@ -1480,7 +1489,7 @@ async function loadDashboard() {
         // Precargar productos para obtener imágenes del ranking
         const { data: productosData } = await client.from('productos').select('id, nombre, imagen_url');
         const productoImgMap = {};
-        (productosData || []).forEach(p => { productoImgMap[p.nombre] = p.imagen_url || 'burger1.png'; });
+        (productosData || []).forEach(p => { productoImgMap[p.nombre] = p.imagen_url || getProductImage(p.nombre); });
 
         // Query pedidos WITH client data, filtered by date
         let query = client.from('pedidos').select('*, clientes(id, user_id, nombre, whatsapp, email)').order('created_at', { ascending: false });
@@ -1551,7 +1560,7 @@ async function loadDashboard() {
         // ── Ranking Burgers con imágenes ──
         const sorted = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
         document.getElementById('best-sellers-list').innerHTML = sorted.map(([name, qty], i) => {
-            const img = productoImgMap[name] || 'burger1.png';
+            const img = productoImgMap[name] || getProductImage(name);
             const highlight = i === 0 ? 'background:#FFF9C4; border:1px solid #FBC02D;' : '';
             return `<div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid #eee; ${highlight}">
                 <img src="${img}" alt="${name}" style="width:40px; height:40px; border-radius:50%; object-fit:cover; border:2px solid #111; flex-shrink:0;">

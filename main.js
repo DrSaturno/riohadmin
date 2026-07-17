@@ -243,18 +243,30 @@ async function loadMenu() {
         const { data, error } = await supabaseClient.from('productos').select('*').eq('activo', true);
         if (error) throw error;
 
-        menuData = data.map(p => ({
-            id: p.id,
-            title: p.nombre || "Producto sin nombre",
-            category: p.categoria || "burgers",
-            simple: parseFloat(p.precio_simple) || 0,
-            doble: parseFloat(p.precio_doble) || 0,
-            desc: p.descripcion || "",
-            img: p.imagen_url || "burger1.png",
-            destacado: p.destacado || false,
-            stock: (p.stock !== null && p.stock !== undefined) ? p.stock : 999,
-            receta: p.receta || null
-        }));
+        menuData = data.map(p => {
+            let imgUrl = p.imagen_url;
+            if (!imgUrl) {
+                if (p.nombre && p.nombre.toLowerCase().includes('papas')) {
+                    imgUrl = 'papas.jpeg';
+                } else if (p.nombre && p.nombre.toLowerCase().includes('nuggets')) {
+                    imgUrl = 'nuggets.png';
+                } else {
+                    imgUrl = 'burger1.png';
+                }
+            }
+            return {
+                id: p.id,
+                title: p.nombre || "Producto sin nombre",
+                category: p.categoria || "burgers",
+                simple: parseFloat(p.precio_simple) || 0,
+                doble: parseFloat(p.precio_doble) || 0,
+                desc: p.descripcion || "",
+                img: imgUrl,
+                destacado: p.destacado || false,
+                stock: (p.stock !== null && p.stock !== undefined) ? p.stock : 999,
+                receta: p.receta || null
+            };
+        });
         await checkIngredientAvailability();
         renderMenu(menuData);
         renderExtras(menuData);
