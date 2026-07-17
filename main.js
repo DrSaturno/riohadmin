@@ -1326,7 +1326,6 @@ window.submitOrder = async function() {
                     whatsapp: phone,
                     email: custEmail,
                     direccion: custAddress,
-                    zona: custZona,
                     pedidos_count: 0,
                     total_gastado: 0
                 }).select();
