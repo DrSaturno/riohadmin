@@ -3464,8 +3464,13 @@ footer {
 
     /* MOBILE CART — el pedido es protagonista; la venta cruzada es secundaria. */
     .cart-modal-content {
+        height: 100svh;
         max-height: 100svh;
-        overflow: hidden;
+        display: block;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
     }
 
     .cart-header {
@@ -3475,6 +3480,10 @@ footer {
         grid-template-columns: auto minmax(0, 1fr) 40px;
         gap: 0.75rem;
         flex: 0 0 auto;
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: #fff;
     }
 
     .cart-header h2 {
@@ -3502,11 +3511,15 @@ footer {
     }
 
     .cart-items-list {
-        flex: 1 1 auto;
+        flex: none;
         min-height: 0;
         padding: 0 1.25rem;
         background: #fff;
-        overscroll-behavior: contain;
+        overflow: visible;
+    }
+
+    .cart-items-list .empty-cart-msg {
+        min-height: calc(100svh - 75px);
     }
 
     .cart-item {
@@ -3562,6 +3575,7 @@ footer {
 
     .cart-footer {
         flex: 0 0 auto;
+        position: static;
         padding: 0.9rem 1.25rem calc(1rem + env(safe-area-inset-bottom));
     }
 
