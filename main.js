@@ -67,6 +67,62 @@ let isMasterOnline = true;
 let upsellQtys = {};
 let selectedPayMethod = null;
 
+const RIOH_WHATSAPP_NUMBER = '5491136082374';
+const LAST_ORDER_KEY = 'rioh_last_order_v1';
+const GUEST_PROFILE_KEY = 'rioh_checkout_profile_v1';
+const DELIVERY_PREP_MINUTES = 30;
+const DELIVERY_SLOT_MINUTES = 15;
+const DELIVERY_ZONE_KEYS = new Set([
+    'saavedra',
+    'nunez',
+    'belgrano',
+    'florida',
+    'villa-martelli',
+    'villa-urquiza'
+]);
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function normalizePhone(value) {
+    return String(value || '').replace(/\D/g, '');
+}
+
+function formatExtra(extra) {
+    if (typeof extra === 'string') return extra;
+    if (!extra || !extra.name) return '';
+    const qty = Math.max(1, parseInt(extra.qty) || 1);
+    return `${qty > 1 ? `${qty}x ` : ''}${extra.name}`;
+}
+
+function formatExtras(extras) {
+    return (extras || []).map(formatExtra).filter(Boolean);
+}
+
+function readStoredJson(key) {
+    try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function writeStoredJson(key, value) {
+    try {
+        localStorage.setItem(key, JSON.stringify(value));
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
 // 3.1 STORE HOURS LOGIC
 let storeHoursConfig = null;
 
@@ -158,6 +214,8 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchStoreHours();
     subscribeToStoreChanges();
     initScrollButtons();
+    restoreGuestCheckoutProfile();
+    initializeLastOrderReceipt();
 
     // Initial status check
     const status = getStoreStatus();
@@ -322,8 +380,10 @@ function renderExtras(data) {
                 <p class="extra-card-price">$${p.simple.toLocaleString()}</p>
                 ${soldOut ? '<p style="color:var(--primary); font-weight:900; font-size:0.8rem;">AGOTADO</p>' : ''}
             </div>
-            <button class="extra-add-btn" ${disabled ? `disabled style="${closedStyle} opacity:0.5;"` : `onclick="addExtraToCart('${p.id}')"`}>
-                ${soldOut ? 'AGOTADO' : storeClosed ? 'NEGOCIO CERRADO' : '+ AGREGAR'}
+            <button class="extra-add-btn" data-default-label="${soldOut ? 'AGOTADO' : storeClosed ? 'NEGOCIO CERRADO' : 'AGREGAR'}"
+                ${disabled ? `disabled style="${closedStyle} opacity:0.5;"` : `onclick="addExtraToCart('${p.id}')"`}>
+                <span class="extra-add-symbol">${soldOut ? '×' : storeClosed ? '⌛' : '+'}</span>
+                <span class="extra-add-label">${soldOut ? 'AGOTADO' : storeClosed ? 'NEGOCIO CERRADO' : 'AGREGAR'}</span>
             </button>
         </div>`;
     }).join('');
@@ -356,7 +416,16 @@ window.addExtraToCart = (productId) => {
     }
     updateOrderBar();
     const btn = document.querySelector(`.extra-add-btn[onclick="addExtraToCart('${productId}')"]`);
-    if (btn) { btn.textContent = '✓ AGREGADO'; setTimeout(() => { btn.textContent = '+ AGREGAR'; }, 1200); }
+    if (btn) {
+        const symbol = btn.querySelector('.extra-add-symbol');
+        const label = btn.querySelector('.extra-add-label');
+        if (symbol) symbol.textContent = '✓';
+        if (label) label.textContent = 'AGREGADO';
+        setTimeout(() => {
+            if (symbol) symbol.textContent = '+';
+            if (label) label.textContent = btn.dataset.defaultLabel || 'AGREGAR';
+        }, 1200);
+    }
 };
 
 async function loadActivePromos() {
@@ -406,6 +475,7 @@ async function onAuthSuccess(user, fromLogin) {
         fill('cust-phone', cliente.whatsapp);
         fill('cust-email', cliente.email);
         fill('cust-address', cliente.direccion);
+        fill('cust-doorbell', cliente.timbre);
     }
 
     if (fromLogin) {
@@ -605,7 +675,7 @@ function renderMenu(items) {
     const openIcon = status.open ? 'plus' : 'clock';
     const btnLabel = status.open ? 'SUMAR AL CARRITO' : 'NEGOCIO CERRADO';
 
-    grid.innerHTML = regular.map(item => {
+    const regularCards = regular.map(item => {
         const soldOut = item.stock <= 0;
         const disabled = !status.open || soldOut;
         const label = soldOut ? 'AGOTADO' : btnLabel;
@@ -628,8 +698,7 @@ function renderMenu(items) {
         </div>`;
     }).join('');
 
-    if (featured && featuredSlot) {
-        featuredSlot.innerHTML = `
+    const featuredCard = featured ? `
             <div class="menu-item-featured ${!status.open ? 'closed-item' : ''}" onclick="openProductModal('${featured.id}')">
                 <div class="featured-img">
                     <img src="${featured.img}" alt="${featured.title}" loading="lazy">
@@ -647,8 +716,11 @@ function renderMenu(items) {
                     </button>
                 </div>
             </div>
-        `;
-    }
+        ` : '';
+
+    // Una sola grilla permite que mobile muestre las cuatro burgers en 2×2.
+    grid.innerHTML = featuredCard + regularCards;
+    if (featuredSlot) featuredSlot.innerHTML = '';
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
@@ -691,7 +763,15 @@ window.openProductModal = function (id) {
         if (b.dataset.type === "Simple") b.classList.add('active');
     });
 
-    document.querySelectorAll('.extra-item input').forEach(i => i.checked = false);
+    document.querySelectorAll('.extra-item').forEach(item => {
+        item.dataset.qty = '0';
+        item.classList.remove('active');
+        const valueEl = item.querySelector('.extra-qty-value');
+        if (valueEl) valueEl.textContent = '0';
+        item.querySelectorAll('.extra-qty-btn').forEach(btn => {
+            btn.disabled = btn.dataset.delta === '-1';
+        });
+    });
     updateModalPrice();
 
     const modal = document.getElementById('product-modal');
@@ -714,8 +794,23 @@ function initListeners() {
         };
     });
 
-    document.querySelectorAll('.extra-item input').forEach(input => {
-        input.onchange = () => updateModalPrice();
+    document.querySelectorAll('.extra-qty-btn').forEach(btn => {
+        btn.onclick = () => {
+            const item = btn.closest('.extra-item');
+            if (!item) return;
+            const current = parseInt(item.dataset.qty) || 0;
+            const delta = parseInt(btn.dataset.delta) || 0;
+            const next = Math.max(0, Math.min(2, current + delta));
+            item.dataset.qty = String(next);
+            item.classList.toggle('active', next > 0);
+            const valueEl = item.querySelector('.extra-qty-value');
+            if (valueEl) valueEl.textContent = String(next);
+            item.querySelectorAll('.extra-qty-btn').forEach(control => {
+                const controlDelta = parseInt(control.dataset.delta) || 0;
+                control.disabled = (controlDelta < 0 && next === 0) || (controlDelta > 0 && next === 2);
+            });
+            updateModalPrice();
+        };
     });
 
     const addToCartBig = document.getElementById('add-to-cart-big');
@@ -728,9 +823,16 @@ function initListeners() {
             let extras = [];
             let extrasTotal = 0;
 
-            document.querySelectorAll('.extra-item input:checked').forEach(i => {
-                extras.push(i.dataset.name);
-                extrasTotal += parseInt(i.dataset.price) || 0;
+            document.querySelectorAll('.extra-item').forEach(item => {
+                const qty = parseInt(item.dataset.qty) || 0;
+                if (qty <= 0) return;
+                const unitPrice = parseInt(item.dataset.price) || 0;
+                extras.push({
+                    name: item.dataset.name,
+                    qty,
+                    unitPrice
+                });
+                extrasTotal += unitPrice * qty;
             });
 
             cart.push({
@@ -858,8 +960,9 @@ function updateModalPrice() {
     if (!currentProduct) return;
     let base = currentType === "Simple" ? currentProduct.simple : currentProduct.doble;
     let extras = 0;
-    document.querySelectorAll('.extra-item input:checked').forEach(i => {
-        extras += parseInt(i.dataset.price) || 0;
+    document.querySelectorAll('.extra-item').forEach(item => {
+        const qty = parseInt(item.dataset.qty) || 0;
+        extras += (parseInt(item.dataset.price) || 0) * qty;
     });
     const priceEl = document.getElementById('modal-total-price');
     if (priceEl) priceEl.innerText = `$${((base + extras) * currentQty).toLocaleString()}`;
@@ -947,8 +1050,8 @@ function renderCartItems() {
         list.innerHTML = cart.map((item, idx) => `
             <div class="cart-item">
                 <div class="cart-item-info">
-                    <h4>${item.title}</h4>
-                    <span>${item.type}${item.extras.length ? ' + ' + item.extras.join(', ') : ''}</span>
+                    <h4>${escapeHtml(item.title)}</h4>
+                    <span>${escapeHtml(item.type)}${(item.extras || []).length ? ' + ' + escapeHtml(formatExtras(item.extras).join(', ')) : ''}</span>
                     <div class="cart-qty-controls">
                         <button onclick="updateCartQty(${idx}, -1)"><i data-lucide="minus"></i></button>
                         <span>${item.qty}</span>
@@ -1116,8 +1219,211 @@ window.copyAlias = function() {
     });
 };
 
+function getSelectedZoneKey() {
+    const zoneSelect = document.getElementById('shipping-zone');
+    return zoneSelect?.options[zoneSelect.selectedIndex]?.dataset.zone || '';
+}
+
+function isDeliverySlotEnabled() {
+    return currentDeliveryMethod === 'delivery' && DELIVERY_ZONE_KEYS.has(getSelectedZoneKey());
+}
+
+function buildDeliverySlots() {
+    const now = new Date();
+    const earliest = new Date(now.getTime() + DELIVERY_PREP_MINUTES * 60 * 1000);
+    const dayStart = new Date(now);
+    dayStart.setHours(0, 0, 0, 0);
+    const slots = [];
+
+    for (let minutes = 19 * 60 + 30; minutes <= 24 * 60; minutes += DELIVERY_SLOT_MINUTES) {
+        const slot = new Date(dayStart.getTime() + minutes * 60 * 1000);
+        if (slot.getTime() < earliest.getTime()) continue;
+        const label = minutes === 24 * 60
+            ? '00:00'
+            : `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+        slots.push({ label, value: slot.toISOString() });
+    }
+
+    return slots;
+}
+
+function updateDeliveryTimeOptions() {
+    const group = document.getElementById('delivery-time-group');
+    const select = document.getElementById('delivery-time');
+    const help = document.getElementById('delivery-time-help');
+    if (!group || !select || !help) return;
+
+    const previousValue = select.value;
+    const enabled = isDeliverySlotEnabled();
+    group.classList.toggle('is-disabled', !enabled);
+    select.disabled = !enabled;
+    select.required = enabled;
+
+    if (!enabled) {
+        select.innerHTML = '<option value="">HORARIO A COORDINAR</option>';
+        help.textContent = currentDeliveryMethod === 'pickup'
+            ? 'El horario de retiro se coordina con el local.'
+            : 'Para esta zona coordinamos el horario después de recibir el pedido.';
+        return;
+    }
+
+    const slots = buildDeliverySlots();
+    if (!slots.length) {
+        select.innerHTML = '<option value="">SIN TURNOS DISPONIBLES HOY</option>';
+        help.textContent = 'Ya no quedan horarios disponibles para hoy.';
+        return;
+    }
+
+    select.innerHTML = '<option value="">ELEGÍ UN HORARIO</option>' +
+        slots.map(slot => `<option value="${slot.value}">${slot.label}</option>`).join('');
+    if (slots.some(slot => slot.value === previousValue)) select.value = previousValue;
+    help.textContent = `Turnos cada ${DELIVERY_SLOT_MINUTES} minutos, con ${DELIVERY_PREP_MINUTES} minutos de preparación.`;
+}
+
+function fillCheckoutProfile(profile, onlyEmpty = true) {
+    if (!profile) return;
+    const fields = {
+        'cust-name': profile.nombre,
+        'cust-phone': profile.whatsapp,
+        'cust-email': profile.email,
+        'cust-address': profile.direccion,
+        'cust-doorbell': profile.timbre
+    };
+    Object.entries(fields).forEach(([id, value]) => {
+        const input = document.getElementById(id);
+        if (!input || !value || (onlyEmpty && input.value.trim())) return;
+        input.value = value;
+    });
+}
+
+function restoreGuestCheckoutProfile() {
+    if (currentUser) return;
+    fillCheckoutProfile(readStoredJson(GUEST_PROFILE_KEY));
+}
+
+function saveGuestCheckoutProfile(profile) {
+    if (!currentUser) writeStoredJson(GUEST_PROFILE_KEY, profile);
+}
+
+function getLastOrderReceipt() {
+    return readStoredJson(LAST_ORDER_KEY);
+}
+
+function initializeLastOrderReceipt() {
+    const btn = document.getElementById('last-order-btn');
+    if (!btn) return;
+    btn.style.display = getLastOrderReceipt() ? 'flex' : 'none';
+}
+
+function formatReceiptTime(isoValue) {
+    if (!isoValue) return 'A coordinar';
+    const date = new Date(isoValue);
+    if (Number.isNaN(date.getTime())) return 'A coordinar';
+    return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function paymentLabel(method) {
+    return method === 'transferencia' ? 'Transferencia bancaria' : 'Efectivo';
+}
+
+function renderOrderConfirmation(receipt) {
+    if (!receipt) return;
+    const modal = document.getElementById('confirmation-modal');
+    const numberEl = document.getElementById('confirmation-order-number');
+    const statusEl = document.getElementById('confirmation-status-copy');
+    const summaryEl = document.getElementById('confirmation-summary');
+    if (!modal || !numberEl || !statusEl || !summaryEl) return;
+
+    numberEl.textContent = `PEDIDO #${receipt.numeroPedido || '---'}`;
+    statusEl.textContent = receipt.paymentMethod === 'transferencia'
+        ? 'Tu pedido está registrado. La transferencia queda pendiente de comprobante.'
+        : 'Tu pedido está registrado. Abonás en efectivo al recibirlo o retirarlo.';
+
+    const itemsHtml = (receipt.items || []).map(item => {
+        const extras = formatExtras(item.extras);
+        const detail = [item.type, ...extras].filter(Boolean).join(' + ');
+        return `<div class="confirmation-item">
+            <div>
+                <strong>${parseInt(item.qty) || 1}× ${escapeHtml(item.title)}</strong>
+                ${detail ? `<span>${escapeHtml(detail)}</span>` : ''}
+            </div>
+            <b>$${Number(item.total || 0).toLocaleString('es-AR')}</b>
+        </div>`;
+    }).join('');
+
+    const deliveryTitle = receipt.deliveryMethod === 'pickup'
+        ? 'Retiro en local'
+        : `${receipt.zone || 'Delivery'} · ${formatReceiptTime(receipt.deliveryAt)} hs`;
+    const deliveryDetail = receipt.deliveryMethod === 'pickup'
+        ? 'Coordiná el horario con el local.'
+        : [receipt.address, receipt.doorbell ? `Timbre/Depto: ${receipt.doorbell}` : ''].filter(Boolean).join(' · ');
+
+    summaryEl.innerHTML = `
+        <div class="confirmation-items">${itemsHtml}</div>
+        <div class="confirmation-divider"></div>
+        <div class="confirmation-delivery">
+            <span>ENTREGA</span>
+            <strong>${escapeHtml(deliveryTitle)}</strong>
+            ${deliveryDetail ? `<p>${escapeHtml(deliveryDetail)}</p>` : ''}
+        </div>
+        ${receipt.notes ? `<div class="confirmation-note"><span>NOTA</span><p>${escapeHtml(receipt.notes)}</p></div>` : ''}
+        <div class="confirmation-totals">
+            <div><span>Subtotal</span><b>$${Number(receipt.subtotal || 0).toLocaleString('es-AR')}</b></div>
+            ${receipt.discount > 0 ? `<div><span>Descuento</span><b>-$${Number(receipt.discount).toLocaleString('es-AR')}</b></div>` : ''}
+            <div><span>Envío</span><b>${receipt.shipping > 0 ? `$${Number(receipt.shipping).toLocaleString('es-AR')}` : 'GRATIS'}</b></div>
+            <div class="confirmation-total"><span>TOTAL</span><b>$${Number(receipt.total || 0).toLocaleString('es-AR')}</b></div>
+            <div><span>Pago</span><b>${escapeHtml(paymentLabel(receipt.paymentMethod))}</b></div>
+        </div>`;
+
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+window.openLastOrderReceipt = function() {
+    const receipt = getLastOrderReceipt();
+    if (!receipt) {
+        initializeLastOrderReceipt();
+        showAlert('SIN COMPROBANTE', 'Todavía no hay un pedido guardado en este dispositivo.');
+        return;
+    }
+    renderOrderConfirmation(receipt);
+};
+
+window.closeConfirmationModal = function() {
+    const modal = document.getElementById('confirmation-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => { modal.style.display = 'none'; }, 350);
+    document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+window.sendLastOrderWhatsApp = function() {
+    const receipt = getLastOrderReceipt();
+    if (!receipt) return;
+    const itemLines = (receipt.items || []).map(item => {
+        const details = [item.type, ...formatExtras(item.extras)].filter(Boolean).join(' + ');
+        return `• ${parseInt(item.qty) || 1}x ${item.title}${details ? ` (${details})` : ''} — $${Number(item.total || 0).toLocaleString('es-AR')}`;
+    });
+    const delivery = receipt.deliveryMethod === 'pickup'
+        ? 'Retiro en local - horario a coordinar'
+        : `${receipt.zone || 'Delivery'} - ${formatReceiptTime(receipt.deliveryAt)} hs\n${receipt.address || ''}${receipt.doorbell ? ` - Timbre/Depto: ${receipt.doorbell}` : ''}`;
+    const message = [
+        `Hola RIOH. Quiero dejar registrado mi pedido #${receipt.numeroPedido || '---'}.`,
+        '',
+        ...itemLines,
+        '',
+        `Entrega: ${delivery}`,
+        receipt.notes ? `Nota: ${receipt.notes}` : '',
+        `Pago: ${paymentLabel(receipt.paymentMethod)}`,
+        `Total: $${Number(receipt.total || 0).toLocaleString('es-AR')}`
+    ].filter(Boolean).join('\n');
+    window.open(`https://wa.me/${RIOH_WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+};
+
 window.openCheckoutModal = function () {
     if (cart.length === 0) return;
+    restoreGuestCheckoutProfile();
     // Reset payment selection
     selectedPayMethod = null;
     document.querySelectorAll('.pay-select-btn').forEach(b => b.classList.remove('active'));
@@ -1127,6 +1433,7 @@ window.openCheckoutModal = function () {
     if (finalizarBtn) finalizarBtn.style.display = 'none';
     const guestHint = document.getElementById('guest-hint-block');
     if (guestHint) guestHint.style.display = currentUser ? 'none' : 'block';
+    updateDeliveryTimeOptions();
     updateCheckoutPrices();
     const modal = document.getElementById('checkout-modal');
     modal.style.display = 'flex';
@@ -1135,15 +1442,16 @@ window.openCheckoutModal = function () {
 };
 
 window.updateCheckoutPrices = function () {
+    updateDeliveryTimeOptions();
     const itemsList = document.getElementById('checkout-items-list');
     if (itemsList) {
         itemsList.innerHTML = cart.map(item => {
-            const detail = [item.type, ...(item.extras || [])].filter(Boolean).join(' + ');
+            const detail = [item.type, ...formatExtras(item.extras)].filter(Boolean).join(' + ');
             return `
             <div class="checkout-item-row">
                 <div class="checkout-item-name">
                     <span class="checkout-item-qty">${item.qty}×</span>
-                    <span>${item.title}${detail ? `<br><small>${detail}</small>` : ''}</span>
+                    <span>${escapeHtml(item.title)}${detail ? `<br><small>${escapeHtml(detail)}</small>` : ''}</span>
                 </div>
                 <span class="checkout-item-price">$${item.total.toLocaleString()}</span>
             </div>`;
@@ -1204,10 +1512,12 @@ function resetOrderFlowUI() {
         if (m) { m.classList.remove('active'); m.style.display = 'none'; }
     });
     updateOrderBar();
-    ['cust-name', 'cust-phone', 'cust-email', 'cust-address'].forEach(id => {
+    ['cust-name', 'cust-phone', 'cust-email', 'cust-address', 'cust-doorbell', 'cust-notes'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
+    const deliveryTime = document.getElementById('delivery-time');
+    if (deliveryTime) deliveryTime.value = '';
     const couponInput = document.getElementById('coupon-input');
     if (couponInput) couponInput.value = '';
     const couponMsg = document.getElementById('coupon-message');
@@ -1216,35 +1526,32 @@ function resetOrderFlowUI() {
     if (applyBtn) { applyBtn.innerText = 'APLICAR'; applyBtn.onclick = window.applyCoupon; }
 }
 
-// Auto-fill customer data by phone
+// Auto-fill seguro para invitados: solo usa datos guardados en este dispositivo.
 document.addEventListener('DOMContentLoaded', () => {
     const phoneInput = document.getElementById('cust-phone');
     if (phoneInput) {
-        phoneInput.addEventListener('blur', async () => {
-            const phone = phoneInput.value.trim();
-            if (phone.length < 8) return;
+        phoneInput.addEventListener('blur', () => {
+            const storedProfile = readStoredJson(GUEST_PROFILE_KEY);
+            if (!storedProfile || normalizePhone(storedProfile.whatsapp) !== normalizePhone(phoneInput.value)) return;
+            fillCheckoutProfile(storedProfile);
+            phoneInput.style.borderColor = "#2E7D32";
+            setTimeout(() => {
+                phoneInput.style.borderColor = "";
+            }, 2000);
+        });
+    }
 
-            console.log("Checking customer for phone:", phone);
-            try {
-                const { data } = await supabaseClient
-                    .from('clientes')
-                    .select('nombre, email')
-                    .eq('whatsapp', phone)
-                    .maybeSingle();
-
-                if (data) {
-                    console.log("Customer found! Auto-filling data...");
-                    const nameInput = document.getElementById('cust-name');
-                    const emailInput = document.getElementById('cust-email');
-
-                    if (nameInput && data.nombre) nameInput.value = data.nombre;
-                    if (emailInput && data.email) emailInput.value = data.email;
-
-                    phoneInput.style.borderColor = "#2E7D32";
-                    setTimeout(() => phoneInput.style.borderColor = "", 2000);
-                }
-            } catch (e) {
-                // Not found or error, ignore
+    const zoneSelect = document.getElementById('shipping-zone');
+    if (zoneSelect) {
+        zoneSelect.addEventListener('change', updateDeliveryTimeOptions);
+    }
+    const deliveryTime = document.getElementById('delivery-time');
+    if (deliveryTime) {
+        deliveryTime.addEventListener('change', () => {
+            if (deliveryTime.value) {
+                deliveryTime.style.borderColor = '#2E7D32';
+            } else {
+                deliveryTime.style.borderColor = '';
             }
         });
     }
@@ -1257,6 +1564,7 @@ document.querySelectorAll('.method-pill').forEach(pill => {
         pill.classList.add('active');
         currentDeliveryMethod = pill.dataset.method;
         document.getElementById('address-section').style.display = (currentDeliveryMethod === 'pickup') ? 'none' : 'block';
+        updateDeliveryTimeOptions();
         updateCheckoutPrices();
     };
 });
@@ -1272,6 +1580,10 @@ window.submitOrder = async function() {
         const addr = document.getElementById('cust-address')?.value?.trim() || '';
         if (!addr) {
             showAlert("FALTA LA DIRECCIÓN", "Ingresá la dirección de entrega para el delivery, o elegí retiro por el local.");
+            return;
+        }
+        if (isDeliverySlotEnabled() && !document.getElementById('delivery-time')?.value) {
+            showAlert("FALTA EL HORARIO", "Elegí un horario de entrega para continuar.");
             return;
         }
     }
@@ -1295,8 +1607,17 @@ window.submitOrder = async function() {
             // 1. Client Handling
             const phone = document.getElementById('cust-phone').value.trim();
             const custName = document.getElementById('cust-name').value.trim();
-            const custEmail = document.getElementById('cust-email').value.trim();
+            const custEmail = document.getElementById('cust-email').value.trim() || null;
             const custAddress = document.getElementById('cust-address')?.value?.trim() || '';
+            const custDoorbell = document.getElementById('cust-doorbell')?.value?.trim() || '';
+            const custNotes = document.getElementById('cust-notes')?.value?.trim() || '';
+            const deliveryAt = currentDeliveryMethod === 'delivery' && isDeliverySlotEnabled()
+                ? document.getElementById('delivery-time')?.value || null
+                : null;
+            const zoneSelect = document.getElementById('shipping-zone');
+            const zoneLabel = currentDeliveryMethod === 'delivery'
+                ? zoneSelect?.options[zoneSelect.selectedIndex]?.text.replace(/\s*\(\$[\d.]+\)\s*$/, '') || ''
+                : null;
             let clientId = null;
 
             // Try to find existing client: by user_id, then phone, then email
@@ -1330,13 +1651,17 @@ window.submitOrder = async function() {
                 console.log("Existing client found, using ID:", existingClient.id);
                 clientId = existingClient.id;
                 // Update their info
-                await supabaseClient.from('clientes').update({
+                const clientUpdate = {
                     nombre: custName,
                     whatsapp: phone,
-                    email: custEmail,
-                    direccion: custAddress,
                     user_id: currentUser ? currentUser.id : undefined
-                }).eq('id', clientId);
+                };
+                if (custEmail) clientUpdate.email = custEmail;
+                if (currentDeliveryMethod === 'delivery') {
+                    clientUpdate.direccion = custAddress;
+                    clientUpdate.timbre = custDoorbell;
+                }
+                await supabaseClient.from('clientes').update(clientUpdate).eq('id', clientId);
             } else {
                 console.log("New client, capturing data...");
                 const { data: newClient, error: cErr } = await supabaseClient.from('clientes').insert({
@@ -1345,6 +1670,7 @@ window.submitOrder = async function() {
                     whatsapp: phone,
                     email: custEmail,
                     direccion: custAddress,
+                    timbre: custDoorbell,
                     pedidos_count: 0,
                     total_gastado: 0
                 }).select();
@@ -1358,8 +1684,11 @@ window.submitOrder = async function() {
                 user_id: currentUser ? currentUser.id : null,
                 items: cart,
                 metodo_entrega: currentDeliveryMethod,
-                direccion_entrega: currentDeliveryMethod === 'delivery' ? document.getElementById('cust-address').value : 'Retiro en Local',
-                zona: currentDeliveryMethod === 'delivery' ? document.getElementById('shipping-zone').options[document.getElementById('shipping-zone').selectedIndex].text : null,
+                direccion_entrega: currentDeliveryMethod === 'delivery' ? custAddress : 'Retiro en Local',
+                zona: zoneLabel,
+                timbre: currentDeliveryMethod === 'delivery' ? custDoorbell : null,
+                nota: custNotes || null,
+                entrega_programada: deliveryAt,
                 subtotal,
                 monto_descuento: discount,
                 costo_envio: shipping,
@@ -1377,11 +1706,40 @@ window.submitOrder = async function() {
             // Stock se descuenta en el admin al confirmar pago (kanban: pendiente → aprobado)
 
             await updateClienteStats(total, clientId);
-            const pedidoNum = oData[0].numero_pedido;
-            // Vaciar carrito y resetear TODA la pantalla a cero antes de mostrar el aviso
+            const orderRecord = oData[0];
+            const receipt = {
+                id: orderRecord.id,
+                numeroPedido: orderRecord.numero_pedido,
+                createdAt: orderRecord.created_at || new Date().toISOString(),
+                items: cart,
+                deliveryMethod: currentDeliveryMethod,
+                address: currentDeliveryMethod === 'delivery' ? custAddress : '',
+                doorbell: currentDeliveryMethod === 'delivery' ? custDoorbell : '',
+                zone: zoneLabel,
+                deliveryAt,
+                notes: custNotes,
+                subtotal,
+                discount,
+                shipping,
+                total,
+                paymentMethod: payMethod
+            };
+
+            const previousGuestProfile = readStoredJson(GUEST_PROFILE_KEY) || {};
+            saveGuestCheckoutProfile({
+                nombre: custName,
+                whatsapp: phone,
+                email: custEmail || '',
+                direccion: currentDeliveryMethod === 'delivery' ? custAddress : previousGuestProfile.direccion || '',
+                timbre: currentDeliveryMethod === 'delivery' ? custDoorbell : previousGuestProfile.timbre || ''
+            });
+            writeStoredJson(LAST_ORDER_KEY, receipt);
+            initializeLastOrderReceipt();
+
+            // Vaciar carrito y resetear el flujo después de conservar el comprobante.
             cart = []; appliedCoupon = null;
             resetOrderFlowUI();
-            showAlert("PEDIDO RECIBIDO", `¡Pedido #${pedidoNum} recibido! ¡Muchas gracias por elegirnos!`);
+            renderOrderConfirmation(receipt);
         } catch (err) {
             console.error(err);
             showAlert("ERROR", "Hubo un problema al procesar tu pedido. Por favor, revisá los datos e intentá de nuevo.");

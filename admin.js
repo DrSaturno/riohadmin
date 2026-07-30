@@ -70,6 +70,32 @@ function getProductImage(productNameOrUrl) {
     return 'burger1.png';
 }
 
+function normalizeOrderExtra(extra) {
+    if (typeof extra === 'string') return { name: extra, qty: 1, unitPrice: 0 };
+    return {
+        name: extra?.name || '',
+        qty: Math.max(1, parseInt(extra?.qty) || 1),
+        unitPrice: parseFloat(extra?.unitPrice) || 0
+    };
+}
+
+function formatOrderExtra(extra) {
+    const normalized = normalizeOrderExtra(extra);
+    if (!normalized.name) return '';
+    return `${normalized.qty > 1 ? `${normalized.qty}x ` : ''}${normalized.name}`;
+}
+
+function formatOrderExtras(extras, separator = ', ') {
+    return (extras || []).map(formatOrderExtra).filter(Boolean).join(separator);
+}
+
+function formatScheduledDelivery(isoValue, fallback = 'A coordinar') {
+    if (!isoValue) return fallback;
+    const date = new Date(isoValue);
+    if (Number.isNaN(date.getTime())) return fallback;
+    return `${date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs`;
+}
+
 // ── MOBILE MENU ──
 window.toggleMobileMenu = function () {
     document.getElementById('sidebar').classList.toggle('open');
@@ -119,8 +145,8 @@ async function initQZTray() {
     qz.security.setSignaturePromise(function(toSign, resolve) { resolve(); });
 
     // Suprimir errores de QZ en consola durante el intento de conexión
-    qz.api.setErrorCallbacks(function() {});
-    qz.api.setClosedCallbacks(function() {
+    qz.websocket.setErrorCallbacks(function() {});
+    qz.websocket.setClosedCallbacks(function() {
         _qzConnected = false;
         updateQZStatusUI(false);
     });
@@ -233,9 +259,11 @@ window.testPrintQZ = function () {
         estado_pago: 'aprobado',
         metodo_entrega: 'delivery',
         direccion_entrega: 'Av. RIOH. 1234',
+        timbre: '4° B',
+        entrega_programada: new Date(Date.now() + 45 * 60 * 1000).toISOString(),
         clientes: { nombre: 'Ticket de Prueba', whatsapp: '' },
-        items: [{ qty: 1, title: 'MALBEC RICH', type: 'Simple', extras: ['Extra Bacon'], pricePerUnit: 9999 }],
-        nota: ''
+        items: [{ qty: 1, title: 'MALBEC RICH', type: 'Simple', extras: [{ name: 'Extra Bacon', qty: 2, unitPrice: 1500 }], pricePerUnit: 9999 }],
+        nota: 'Sin cebolla'
     };
     printTicket(testOrder, 'Efectivo');
 };
@@ -771,7 +799,7 @@ window.manualRefreshOrders = function () {
 async function loadOrders() {
     if (!client) return;
     try {
-        let query = client.from('pedidos').select('*, clientes(nombre, whatsapp)').order('created_at', { ascending: false });
+        let query = client.from('pedidos').select('*, clientes(nombre, whatsapp, email)').order('created_at', { ascending: false });
 
         let startDate;
         if (ordersFilter === 'hoy') {
@@ -829,10 +857,11 @@ function renderKanban(orders) {
             const d = new Date(o.created_at);
             const hora = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
             const items = (o.items || []).map(i => {
-                const extrasStr = (i.extras && i.extras.length) ? ` <small style="color:var(--primary); font-weight:700;">+ ${i.extras.join(', ')}</small>` : '';
+                const extrasStr = (i.extras && i.extras.length) ? ` <small style="color:var(--primary); font-weight:700;">+ ${formatOrderExtras(i.extras)}</small>` : '';
                 return `<div>${i.qty}x ${i.title} <small style="color:#999;">(${i.type || '-'})</small>${extrasStr}</div>`;
             }).join('');
             const entrega = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup' ? '🏠 Retiro' : `🛵 ${o.direccion_entrega || 'Delivery'}`;
+            const horarioEntrega = formatScheduledDelivery(o.entrega_programada);
 
             const actionRow = estado !== 'entregado'
                 ? `<div class="card-actions">
@@ -852,6 +881,7 @@ function renderKanban(orders) {
                 <div style="font-size:0.83rem; font-weight:700;">${nombre}</div>
                 ${tel ? `<div style="font-size:0.75rem; color:#888;">${tel}</div>` : ''}
                 <div style="font-size:0.75rem; color:#666; margin-top:2px;">${entrega}</div>
+                <div style="display:inline-block; margin-top:5px; padding:3px 6px; background:#FFF3CD; border:1px solid #111; font-family:'Archivo Black'; font-size:0.68rem;">⏰ ${horarioEntrega}</div>
                 <div class="kanban-items">${items}</div>
                 <div class="kanban-total">$${(o.total || 0).toLocaleString()}</div>
                 <div onclick="event.stopPropagation()">${actionRow}</div>
@@ -919,6 +949,8 @@ window.openOrderDetail = function (orderId) {
     const esRetiro = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup';
     document.getElementById('od-entrega').textContent = esRetiro ? '🏠 Retiro en local' : '🛵 Delivery';
     document.getElementById('od-direccion').textContent = esRetiro ? '' : (o.direccion_entrega || 'Sin dirección');
+    document.getElementById('od-timbre').textContent = !esRetiro && o.timbre ? `Timbre/Depto: ${o.timbre}` : '';
+    document.getElementById('od-horario').textContent = `⏰ ${formatScheduledDelivery(o.entrega_programada)}`;
 
     // Nota
     const notaWrap = document.getElementById('od-nota-wrap');
@@ -937,7 +969,7 @@ window.openOrderDetail = function (orderId) {
             <div class="order-item-info">
                 <div class="order-item-name">${i.title}${extrasCost}</div>
                 ${i.type ? `<div class="order-item-type">${i.type}</div>` : ''}
-                ${(i.extras && i.extras.length) ? `<div class="order-item-extras">+ ${i.extras.join(' · ')}</div>` : ''}
+                ${(i.extras && i.extras.length) ? `<div class="order-item-extras">+ ${formatOrderExtras(i.extras, ' · ')}</div>` : ''}
             </div>
             <div class="order-item-price">$${((i.pricePerUnit || 0) * (parseInt(i.qty) || 1)).toLocaleString()}</div>
         </div>`;
@@ -1204,7 +1236,7 @@ window.downloadOrdersPDF = function () {
         const itemsStr = (o.items || []).map(i => {
             let s = `${i.qty}x ${i.title}`;
             if (i.type) s += ` (${i.type})`;
-            if (i.extras && i.extras.length) s += ` +${i.extras.join(', ')}`;
+            if (i.extras && i.extras.length) s += ` +${formatOrderExtras(i.extras)}`;
             return s;
         }).join(' | ');
         const estado = estadoLabel[o.estado_pago] || o.estado_pago || 'Nuevo';
@@ -1382,7 +1414,9 @@ async function deductOrderStock(orderId) {
 
             // --- 2) Deducciones por EXTRAS del item ---
             if (item.extras && item.extras.length > 0) {
-                for (const extraName of item.extras) {
+                for (const extra of item.extras) {
+                    const normalizedExtra = normalizeOrderExtra(extra);
+                    const extraName = normalizedExtra.name;
                     const mapping = EXTRAS_INSUMO_MAP[extraName];
                     if (!mapping) {
                         console.warn(`  ⚠ Extra "${extraName}" no tiene mapeo de insumo definido`);
@@ -1396,10 +1430,10 @@ async function deductOrderStock(orderId) {
                         console.warn(`  ⚠ No se encontró insumo para extra "${extraName}" (buscando "${mapping.buscar}")`);
                         continue;
                     }
-                    const deductAmount = mapping.cantidad * qty;
+                    const deductAmount = mapping.cantidad * normalizedExtra.qty * qty;
                     const ingId = String(matchedInsumo.id);
                     insumoDeductions[ingId] = (insumoDeductions[ingId] || 0) + deductAmount;
-                    console.log(`  🔥 Extra → "${extraName}" → insumo "${matchedInsumo.nombre}" (id:${ingId}): ${mapping.cantidad} × qty=${qty} = ${deductAmount}`);
+                    console.log(`  🔥 Extra → "${extraName}" → insumo "${matchedInsumo.nombre}" (id:${ingId}): ${mapping.cantidad} × extra=${normalizedExtra.qty} × item=${qty} = ${deductAmount}`);
                 }
             }
         }
@@ -1570,7 +1604,7 @@ async function loadDashboard() {
         document.getElementById('recent-sales-log').innerHTML = pedidos.slice(0, 10).map(p => {
             const itemsStr = (p.items || []).map(i => {
                 let s = `${i.qty}x ${i.title}`;
-                if (i.extras && i.extras.length) s += ` +${i.extras.join(', ')}`;
+                if (i.extras && i.extras.length) s += ` +${formatOrderExtras(i.extras)}`;
                 return s;
             }).join(', ');
             return `<div style="border-bottom: 1px dashed #eee; padding: 10px 0;">
@@ -2257,6 +2291,8 @@ function buildESCPOSTicket(o, metodoPagoOverride) {
     const tel     = safe(o.clientes?.whatsapp || '');
     const esRetiro = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup';
     const dir     = safe(o.direccion_entrega || '').substring(0, 40);
+    const timbre  = safe(o.timbre || '').substring(0, 24);
+    const horario = safe(formatScheduledDelivery(o.entrega_programada));
     const metodo  = safe(metodoPagoOverride || {
         pendiente: 'Efectivo', pendiente_efectivo: 'Efectivo',
         pendiente_transferencia: 'Transferencia', aprobado: 'Pago confirmado',
@@ -2280,6 +2316,8 @@ function buildESCPOSTicket(o, metodoPagoOverride) {
     // ── ENTREGA ──
     t += '\n' + BOLD_ON + (esRetiro ? 'RETIRO EN LOCAL' : 'DELIVERY') + '\n' + BOLD_OFF;
     if (!esRetiro && dir) t += dir + '\n';
+    if (!esRetiro && timbre) t += `Timbre/Depto: ${timbre}\n`;
+    t += BOLD_ON + `HORARIO: ${horario}\n` + BOLD_OFF;
 
     t += SEP2 + '\n';
     t += BOLD_ON + 'PRODUCTOS:\n' + BOLD_OFF + '\n';
@@ -2292,7 +2330,7 @@ function buildESCPOSTicket(o, metodoPagoOverride) {
         const right = precio > 0 ? `$${precio.toLocaleString('es-AR')}` : '';
         t += BOLD_ON + row(`${qty}x ${title}`, right) + '\n' + BOLD_OFF;
         if (i.type) t += `   (${safe(i.type)})\n`;
-        if (i.extras?.length) t += `   +${safe(i.extras.join(', ')).substring(0, 36)}\n`;
+        if (i.extras?.length) t += `   +${safe(formatOrderExtras(i.extras)).substring(0, 36)}\n`;
     }
 
     // ── NOTA ──
@@ -2328,6 +2366,8 @@ function buildReceiptHTML(o, metodoPagoOverride) {
     const tel = o.clientes?.whatsapp || o.clientes?.phone || '';
     const esRetiro = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup';
     const direccion = esRetiro ? '' : (o.direccion_entrega || '');
+    const timbre = esRetiro ? '' : (o.timbre || '');
+    const horarioEntrega = formatScheduledDelivery(o.entrega_programada);
 
     const metodoPagoLabels = {
         pendiente: 'Efectivo',
@@ -2345,7 +2385,7 @@ function buildReceiptHTML(o, metodoPagoOverride) {
         const precio = (i.pricePerUnit || 0) * qty;
         const tipoStr = i.type ? ` <span style="font-weight:normal;font-size:9px;">(${i.type})</span>` : '';
         const extrasStr = (i.extras && i.extras.length)
-            ? `<div style="padding-left:14px;font-size:9px;color:#444;">+ ${i.extras.join(' · ')}</div>`
+            ? `<div style="padding-left:14px;font-size:9px;color:#444;">+ ${formatOrderExtras(i.extras, ' · ')}</div>`
             : '';
         const precioStr = precio > 0 ? `$${precio.toLocaleString('es-AR')}` : '';
         return `<div style="margin-bottom:5px;">
@@ -2367,6 +2407,9 @@ function buildReceiptHTML(o, metodoPagoOverride) {
         : '';
     const direccionHtml = direccion
         ? `<div style="font-size:9px;margin-top:2px;">${direccion}</div>`
+        : '';
+    const timbreHtml = timbre
+        ? `<div style="font-size:9px;margin-top:2px;">Timbre/Depto: ${timbre}</div>`
         : '';
 
     return `<!DOCTYPE html>
@@ -2429,6 +2472,8 @@ function buildReceiptHTML(o, metodoPagoOverride) {
   <div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#666;">Entrega</div>
   <div style="font-weight:bold;font-size:12px;border:2px solid #000;display:inline-block;padding:1px 6px;margin-top:2px;">${esRetiro ? '🏠 RETIRO EN LOCAL' : '🛵 DELIVERY'}</div>
   ${direccionHtml}
+  ${timbreHtml}
+  <div style="font-family:'Arial Black',Arial,sans-serif;font-size:12px;margin-top:4px;">⏰ ${horarioEntrega}</div>
 </div>
 
 <hr class="solid">
