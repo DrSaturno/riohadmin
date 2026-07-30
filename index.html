@@ -11,7 +11,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@400;700;900&family=Syne:wght@800&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260717">
+    <link rel="stylesheet" href="style.css?v=20260728.2">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -48,6 +48,10 @@
                 <span class="cart-badge" id="cart-badge" style="display:none">0</span>
             </span>
             <span class="cart-label">CARRITO (<span id="cart-qty">0</span>)</span>
+        </button>
+        <button class="last-order-btn" id="last-order-btn" onclick="openLastOrderReceipt()" style="display:none">
+            <i data-lucide="receipt-text"></i>
+            <span>ÚLTIMO PEDIDO</span>
         </button>
     </div>
 
@@ -102,18 +106,45 @@
                         <div class="custom-section">
                             <h4>EXTRAS</h4>
                             <div class="extras-list">
-                                <label class="extra-item">
-                                    <input type="checkbox" data-name="Medallón Extra" data-price="1500">
-                                    <span>Medallón Extra (+$1.500)</span>
-                                </label>
-                                <label class="extra-item">
-                                    <input type="checkbox" data-name="Extra Cheddar" data-price="1500">
-                                    <span>Extra Cheddar (+$1.500)</span>
-                                </label>
-                                <label class="extra-item">
-                                    <input type="checkbox" data-name="Extra Bacon" data-price="1500">
-                                    <span>Extra Bacon (+$1.500)</span>
-                                </label>
+                                <div class="extra-item" data-name="Medallón Extra" data-price="1500">
+                                    <div class="extra-item-copy">
+                                        <strong>Medallón Extra</strong>
+                                        <span>+$1.500 c/u</span>
+                                    </div>
+                                    <div class="extra-qty-control">
+                                        <button type="button" class="extra-qty-btn" data-delta="-1"
+                                            aria-label="Quitar medallón extra">−</button>
+                                        <span class="extra-qty-value">0</span>
+                                        <button type="button" class="extra-qty-btn" data-delta="1"
+                                            aria-label="Agregar medallón extra">+</button>
+                                    </div>
+                                </div>
+                                <div class="extra-item" data-name="Extra Cheddar" data-price="1500">
+                                    <div class="extra-item-copy">
+                                        <strong>Extra Cheddar</strong>
+                                        <span>+$1.500 c/u</span>
+                                    </div>
+                                    <div class="extra-qty-control">
+                                        <button type="button" class="extra-qty-btn" data-delta="-1"
+                                            aria-label="Quitar cheddar extra">−</button>
+                                        <span class="extra-qty-value">0</span>
+                                        <button type="button" class="extra-qty-btn" data-delta="1"
+                                            aria-label="Agregar cheddar extra">+</button>
+                                    </div>
+                                </div>
+                                <div class="extra-item" data-name="Extra Bacon" data-price="1500">
+                                    <div class="extra-item-copy">
+                                        <strong>Extra Bacon</strong>
+                                        <span>+$1.500 c/u</span>
+                                    </div>
+                                    <div class="extra-qty-control">
+                                        <button type="button" class="extra-qty-btn" data-delta="-1"
+                                            aria-label="Quitar bacon extra">−</button>
+                                        <span class="extra-qty-value">0</span>
+                                        <button type="button" class="extra-qty-btn" data-delta="1"
+                                            aria-label="Agregar bacon extra">+</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -255,8 +286,8 @@
                                 </div>
 
                                 <div class="input-group">
-                                    <label>EMAIL</label>
-                                    <input type="email" id="cust-email" required placeholder="tu@email.com">
+                                    <label>EMAIL <span class="optional-label">(OPCIONAL)</span></label>
+                                    <input type="email" id="cust-email" placeholder="tu@email.com">
                                 </div>
 
                                 <div class="delivery-toggle-group">
@@ -270,21 +301,36 @@
                                 </div>
 
                                 <div id="address-section">
-                                    <div class="input-group">
-                                        <label>DIRECCIÓN DE ENTREGA</label>
-                                        <input type="text" id="cust-address" placeholder="Calle, altura, depto...">
+                                    <div class="form-row">
+                                        <div class="input-group">
+                                            <label>DIRECCIÓN DE ENTREGA</label>
+                                            <input type="text" id="cust-address" placeholder="Calle y altura">
+                                        </div>
+                                        <div class="input-group">
+                                            <label>TIMBRE / DEPTO.</label>
+                                            <input type="text" id="cust-doorbell"
+                                                placeholder="Ej: 4° B, timbre 12">
+                                        </div>
                                     </div>
                                     <div class="input-group">
                                         <label>ZONA / ENVÍO</label>
                                         <select id="shipping-zone" onchange="updateCheckoutPrices()">
-                                            <option value="0">SAAVEDRA ($0)</option>
-                                            <option value="0">NUÑEZ ($0)</option>
-                                            <option value="0">BELGRANO ($0)</option>
-                                            <option value="0">VILLA URQUIZA ($0)</option>
-                                            <option value="0">FLORIDA ($0)</option>
-                                            <option value="0">V. MARTELLI ($0)</option>
-                                            <option value="0">VICENTE LOPEZ ($0)</option>
+                                            <option value="0" data-zone="saavedra">SAAVEDRA ($0)</option>
+                                            <option value="0" data-zone="nunez">NUÑEZ ($0)</option>
+                                            <option value="0" data-zone="belgrano">BELGRANO ($0)</option>
+                                            <option value="0" data-zone="villa-urquiza">VILLA URQUIZA ($0)</option>
+                                            <option value="0" data-zone="florida">FLORIDA ($0)</option>
+                                            <option value="0" data-zone="villa-martelli">V. MARTELLI ($0)</option>
+                                            <option value="0" data-zone="vicente-lopez">VICENTE LOPEZ ($0)</option>
                                         </select>
+                                    </div>
+                                    <div class="input-group delivery-time-group" id="delivery-time-group">
+                                        <label>HORARIO DE ENTREGA</label>
+                                        <select id="delivery-time">
+                                            <option value="">ELEGÍ UN HORARIO</option>
+                                        </select>
+                                        <small id="delivery-time-help">Turnos cada 15 minutos, con 30 minutos de
+                                            preparación.</small>
                                     </div>
                                     <button type="button" class="text-link" onclick="openCoverageModal()"
                                         style="background:none; border:none; color:var(--primary); font-family:var(--font-heading); font-size:0.7rem; cursor:pointer; text-decoration:underline; margin-top:5px;">
@@ -295,7 +341,7 @@
                                 <div class="input-group">
                                     <label>NOTAS ADICIONALES</label>
                                     <textarea id="cust-notes" rows="2"
-                                        placeholder="Timbres, aclaraciones de cocina..."></textarea>
+                                        placeholder="Aclaraciones de cocina o entrega..."></textarea>
                                 </div>
                             </div>
 
@@ -381,7 +427,7 @@
                 </div>
                 <div class="cart-footer">
                     <div class="cart-upsell">
-                        <h4>¿TE QUEDASTE CON HAMBRE?</h4>
+                        <h4>¿TE GUSTARÍA SUMAR ALGO MÁS?</h4>
                         <div id="upsell-items" class="upsell-grid"></div>
                     </div>
 
@@ -390,9 +436,34 @@
                         <span id="cart-final-total">$0</span>
                     </div>
                     <button class="checkout-now-btn" onclick="showUpsellModal(); toggleCartModal();">
-                        INICIAR COMPRA <i data-lucide="arrow-right"></i>
+                        IR A PAGAR <i data-lucide="arrow-right"></i>
                     </button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Confirmación y comprobante persistente del último pedido -->
+        <div id="confirmation-modal" class="modal-overlay">
+            <div class="modal-content confirmation-content">
+                <div class="confirmation-ticket-edge"></div>
+                <div class="confirmation-kicker">PEDIDO CONFIRMADO</div>
+                <div class="confirmation-check"><i data-lucide="check"></i></div>
+                <h2 id="confirmation-order-number">PEDIDO #---</h2>
+                <p id="confirmation-status-copy">Tu pedido ya quedó registrado.</p>
+
+                <div class="confirmation-summary" id="confirmation-summary"></div>
+
+                <div class="confirmation-actions">
+                    <button type="button" class="confirmation-whatsapp-btn" onclick="sendLastOrderWhatsApp()">
+                        <i data-lucide="message-circle"></i> ENVIAR COMPROBANTE POR WHATSAPP
+                    </button>
+                    <button type="button" class="confirmation-close-btn" onclick="closeConfirmationModal()">
+                        VOLVER AL MENÚ
+                    </button>
+                </div>
+                <p class="confirmation-backup-note">
+                    Guardamos este comprobante en este dispositivo para que puedas volver a consultarlo.
+                </p>
             </div>
         </div>
 
@@ -478,7 +549,7 @@
         </div>
     </main>
 
-    <script src="main.js?v=20260717"></script>
+    <script src="main.js?v=20260728.2"></script>
 </body>
 
 </html>
