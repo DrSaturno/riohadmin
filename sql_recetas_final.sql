@@ -3,15 +3,16 @@
 -- Ejecutar en Supabase SQL Editor
 -- ═══════════════════════════════════════════════════════════════
 
--- 1) Porción de Papas → agregar receta con Papas Bastón
+-- 1) Porción de Papas → agregar receta con Papas Bastón.
+-- El insumo está medido en kg: 200 g equivalen a 0.2 kg.
 UPDATE productos
 SET receta = '{
   "ingredientes": [
     {
       "ingrediente_id": "fa0963b7-6a1c-4756-a93d-23dbc8a332ee",
       "nombre": "Papas Bastón (Crudas)",
-      "unidad": "g",
-      "cantidad": 200
+      "unidad": "kg",
+      "cantidad": 0.2
     }
   ]
 }'::jsonb
