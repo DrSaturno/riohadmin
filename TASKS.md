@@ -61,6 +61,7 @@
 - [x] Fuentes y carpeta de entrega comparados por hash.
 - [x] Version publicada en `main` y desplegada correctamente en Vercel el 2026-08-05.
 - [x] Catalogo verificado en navegador real a 320 px, 360 px, 390 px y 430 px sin desbordamiento horizontal.
+- [x] Proyecto vinculado localmente con Vercel y despliegue manual de produccion completado el 2026-08-05 tras omitirse el deploy automatico del commit `d7b939f`.
 - [ ] Confirmar inicio de sesion real en el administrador.
 - [ ] Ejecutar una compra de prueba y recorrer avance, retroceso y cancelacion.
 - [x] `RIOH_SITEGROUND.zip` regenerado y verificado el 2026-08-05 (23 archivos en la raiz del paquete).
