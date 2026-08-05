@@ -36,10 +36,11 @@
 - [x] Alta controlada del insumo Cebolla Morada.
 - [x] Textos de WhatsApp y bloque de Instagram ajustados.
 - [x] Titulo `FOLLOW THE VIBE` eliminado; se conserva unicamente el enlace visual a Instagram.
-- [x] Fondos de categorias actualizados: Hamburguesas usa `nueva3.jpg.jpeg`, Extras usa `nuevaDESIGN.jpg.jpeg` y las categorias futuras alternan ambos fondos segun su orden.
+- [x] Fondos de categorias corregidos: Hamburguesas usa `nueva1.jpeg`, Extras usa `nuevaDESIGN.jpg.jpeg` y las categorias futuras alternan ambos fondos segun su orden.
 - [x] Titulos y descripciones visibles en todas las secciones del catalogo con tratamiento visual RIOH y espaciado responsive.
 - [x] Auditoria mobile completada entre 320 px y 430 px: titulos fluidos sin cortes internos, textos con salto seguro y ultima tarjeta impar centrada.
 - [x] Firma `By🪐DrSaturno` incorporada de forma sutil en el footer publico y debajo de Salir en el tablero; leyenda anterior eliminada.
+- [x] Centrado mobile del footer corregido: columnas, descripcion, horarios, copyright y firma alineados al eje de la pantalla.
 
 ### Implementacion y datos
 

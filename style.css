@@ -403,7 +403,7 @@ body {
 
 .category-section.category-background-a {
     background-color: #d71920;
-    background-image: url('nueva3.jpg.jpeg');
+    background-image: url('nueva1.jpeg');
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
@@ -1362,6 +1362,7 @@ footer {
 .footer-left p {
     font-weight: 700;
     max-width: 400px;
+    margin-inline: auto;
 }
 
 .footer-info-col h4 {
@@ -1805,9 +1806,23 @@ footer {
 
     /* Footer */
     .footer-grid {
+        width: 100%;
         grid-template-columns: 1fr;
         gap: 2rem;
+        justify-items: center;
         text-align: center;
+    }
+
+    .footer-left,
+    .footer-info-col,
+    .footer-bottom {
+        width: 100%;
+        text-align: center;
+    }
+
+    .footer-left p,
+    .footer-bottom p {
+        margin-inline: auto;
     }
 
     .social-big {
