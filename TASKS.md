@@ -35,12 +35,16 @@
 - [x] Correccion de la receta de papas de 200 g a 0.2 kg.
 - [x] Alta controlada del insumo Cebolla Morada.
 - [x] Textos de WhatsApp y bloque de Instagram ajustados.
+- [x] Titulo `FOLLOW THE VIBE` eliminado; se conserva unicamente el enlace visual a Instagram.
+- [x] Fondos de categorias actualizados: Hamburguesas usa `nueva3.jpg.jpeg`, Extras usa `nuevaDESIGN.jpg.jpeg` y las categorias futuras alternan ambos fondos segun su orden.
+- [x] Titulos y descripciones visibles en todas las secciones del catalogo con tratamiento visual RIOH y espaciado responsive.
 
 ### Implementacion y datos
 
 - [x] Frontend y administrador actualizados.
 - [x] Carpeta `entrega_siteground` sincronizada con los fuentes.
 - [x] Guia operativa de categorias, orden, stock y recetas documentada en `GUIA_ADMIN_PRODUCTOS.md`.
+- [x] Guia de instalacion, conexion y prueba de la ticketera documentada en `GUIA_CONFIGURACION_TICKETERA.md`.
 - [x] Migracion `supabase_migracion_productos_integral.sql` preparada y validada.
 - [x] Migracion ejecutada en Supabase por el responsable del proyecto el 2026-08-05.
 - [ ] Crear el usuario administrador en Supabase Auth y asociarlo a `public.admin_usuarios`.
@@ -55,7 +59,7 @@
 - [x] Version publicada en `main` y desplegada correctamente en Vercel el 2026-08-05.
 - [ ] Confirmar inicio de sesion real en el administrador.
 - [ ] Ejecutar una compra de prueba y recorrer avance, retroceso y cancelacion.
-- [x] `RIOH_SITEGROUND.zip` regenerado y verificado el 2026-08-05 (21 archivos en la raiz del paquete).
+- [x] `RIOH_SITEGROUND.zip` regenerado y verificado el 2026-08-05 (23 archivos en la raiz del paquete).
 
 ### Decisiones tecnicas
 

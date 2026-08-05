@@ -132,6 +132,12 @@ function isDirectProduct(product) {
     return getCategoryForProduct(product)?.tipo_venta === 'directo';
 }
 
+function getCategoryBackgroundClass(category, sectionIndex) {
+    if (category?.slug === 'burgers') return 'category-background-a';
+    if (category?.slug === 'extras') return 'category-background-b';
+    return sectionIndex % 2 === 0 ? 'category-background-a' : 'category-background-b';
+}
+
 function normalizePhone(value) {
     return String(value || '').replace(/\D/g, '');
 }
@@ -911,20 +917,20 @@ function renderCatalog() {
     }
 
     const status = getStoreStatus();
-    catalog.innerHTML = categoriesWithProducts.map(({ category, products }) => {
+    catalog.innerHTML = categoriesWithProducts.map(({ category, products }, sectionIndex) => {
         const sectionClass = category.tipo_venta === 'directo' ? 'extras-section' : 'menu-section';
-        const usesLegacyArtworkTitle = ['burgers', 'extras'].includes(category.slug);
+        const backgroundClass = getCategoryBackgroundClass(category, sectionIndex);
         const content = category.tipo_venta === 'directo'
             ? renderDirectCategory(products, status)
             : renderConfigurableCategory(products, status);
         return `
-            <section id="${escapeHtml(category.slug)}" class="category-section ${sectionClass}" data-sale-type="${category.tipo_venta}">
+            <section id="${escapeHtml(category.slug)}" class="category-section ${sectionClass} ${backgroundClass}" data-sale-type="${category.tipo_venta}">
                 <div class="container">
-                    ${usesLegacyArtworkTitle ? '' : `<header class="category-header ${category.tipo_venta === 'directo' ? 'category-header-light' : ''}">
+                    <header class="category-header ${category.tipo_venta === 'directo' ? 'category-header-light' : ''}">
                         <span class="category-kicker">RIOH. MENÚ</span>
                         <h2>${escapeHtml(category.nombre)}</h2>
                         ${category.descripcion ? `<p>${escapeHtml(category.descripcion)}</p>` : ''}
-                    </header>`}
+                    </header>
                     ${content}
                 </div>
             </section>`;

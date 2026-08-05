@@ -388,7 +388,7 @@ body {
 
 /* MENU SECTION */
 .menu-section {
-    padding: 14rem 0 6rem;
+    padding: 7rem 0 6rem;
     background: url('fondo02.jpg') center top / 100% 100% no-repeat;
 }
 
@@ -399,6 +399,22 @@ body {
 
 .category-section {
     scroll-margin-top: 1rem;
+}
+
+.category-section.category-background-a {
+    background-color: #d71920;
+    background-image: url('nueva3.jpg.jpeg');
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+}
+
+.category-section.category-background-b {
+    background-color: #d71920;
+    background-image: url('nuevaDESIGN.jpg.jpeg');
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
 }
 
 .category-header {
@@ -1289,32 +1305,10 @@ body {
 
 /* INSTAGRAM SECTION */
 .ig-section {
-    padding: 6rem 0;
+    padding: 3rem 0;
     background: var(--text-dark);
     color: white;
     overflow: hidden;
-}
-
-.ig-header {
-    text-align: center;
-    margin-bottom: 3rem;
-}
-
-.ig-header h2 {
-    font-family: var(--font-heading);
-    font-size: 3rem;
-    text-transform: uppercase;
-}
-
-.ig-header p a {
-    color: white;
-    text-decoration: none;
-    font-weight: 500;
-    transition: var(--transition);
-}
-
-.ig-header p a:hover {
-    color: var(--primary);
 }
 
 .ig-follow-link {
@@ -2008,7 +2002,7 @@ footer {
    PARA ACOMPAÑAR SECTION
    ============================================= */
 .extras-section {
-    padding: 14rem 0 5rem;
+    padding: 7rem 0 5rem;
     background: url('fondo03.jpg') center top / 100% 100% no-repeat;
     color: var(--text-dark);
 }
@@ -3182,7 +3176,7 @@ footer {
         background-size: cover;
         background-position: top center;
         background-repeat: no-repeat;
-        padding-top: 14rem;
+        padding-top: 5rem;
         padding-bottom: 4rem;
     }
 
@@ -3191,7 +3185,7 @@ footer {
         background-size: cover;
         background-position: top center;
         background-repeat: no-repeat;
-        padding-top: 14rem;
+        padding-top: 5rem;
         padding-bottom: 4rem;
     }
 
