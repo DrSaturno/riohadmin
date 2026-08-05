@@ -40,10 +40,11 @@
 
 - [x] Frontend y administrador actualizados.
 - [x] Carpeta `entrega_siteground` sincronizada con los fuentes.
+- [x] Guia operativa de categorias, orden, stock y recetas documentada en `GUIA_ADMIN_PRODUCTOS.md`.
 - [x] Migracion `supabase_migracion_productos_integral.sql` preparada y validada.
 - [x] Migracion ejecutada en Supabase por el responsable del proyecto el 2026-08-05.
-- [x] Usuario de Supabase Auth asociado a `public.admin_usuarios`, segun confirmacion del responsable.
-- [x] Stock inicial de Cebolla Morada cargado, segun confirmacion del responsable.
+- [ ] Crear el usuario administrador en Supabase Auth y asociarlo a `public.admin_usuarios`.
+- [ ] Confirmar el valor real cargado para el stock inicial de Cebolla Morada.
 
 ### Verificacion realizada
 
@@ -51,10 +52,10 @@
 - [x] Estructura de `admin.html` e `index.html` validada.
 - [x] Migracion PostgreSQL parseada correctamente: 103 sentencias.
 - [x] Fuentes y carpeta de entrega comparados por hash.
+- [x] Version publicada en `main` y desplegada correctamente en Vercel el 2026-08-05.
 - [ ] Confirmar inicio de sesion real en el administrador.
 - [ ] Ejecutar una compra de prueba y recorrer avance, retroceso y cancelacion.
-- [ ] Publicar la version actualizada.
-- [ ] Regenerar `RIOH_SITEGROUND.zip` si se utilizara ese paquete para publicar.
+- [x] `RIOH_SITEGROUND.zip` regenerado y verificado el 2026-08-05 (21 archivos en la raiz del paquete).
 
 ### Decisiones tecnicas
 
@@ -63,7 +64,10 @@
 - Un pedido cancelado se conserva para auditoria.
 - El ledger `movimientos_stock_pedido` es la fuente para restaurar exactamente el stock descontado.
 - El acceso administrativo requiere una cuenta activa tanto en Supabase Auth como en `admin_usuarios`.
+- El orden se gestiona con enteros ascendentes; se recomiendan intervalos de diez.
+- Un producto con receta obtiene su disponibilidad desde los insumos y no utiliza el stock directo.
+- El consumo doble se calcula por ingrediente mediante `cantidad simple x doble_mult`.
 
 ### Proximo paso
 
-Validar el acceso administrativo con el email creado en Supabase Auth y luego completar una compra de prueba de punta a punta antes de publicar.
+Crear el usuario de Supabase Auth, validar el acceso administrativo y completar una compra de prueba de punta a punta antes de publicar en SiteGround.
