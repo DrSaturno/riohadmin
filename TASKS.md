@@ -38,6 +38,8 @@
 - [x] Titulo `FOLLOW THE VIBE` eliminado; se conserva unicamente el enlace visual a Instagram.
 - [x] Fondos de categorias actualizados: Hamburguesas usa `nueva3.jpg.jpeg`, Extras usa `nuevaDESIGN.jpg.jpeg` y las categorias futuras alternan ambos fondos segun su orden.
 - [x] Titulos y descripciones visibles en todas las secciones del catalogo con tratamiento visual RIOH y espaciado responsive.
+- [x] Auditoria mobile completada entre 320 px y 430 px: titulos fluidos sin cortes internos, textos con salto seguro y ultima tarjeta impar centrada.
+- [x] Firma `By🪐DrSaturno` incorporada de forma sutil en el footer publico y debajo de Salir en el tablero; leyenda anterior eliminada.
 
 ### Implementacion y datos
 
@@ -57,6 +59,7 @@
 - [x] Migracion PostgreSQL parseada correctamente: 103 sentencias.
 - [x] Fuentes y carpeta de entrega comparados por hash.
 - [x] Version publicada en `main` y desplegada correctamente en Vercel el 2026-08-05.
+- [x] Catalogo verificado en navegador real a 320 px, 360 px, 390 px y 430 px sin desbordamiento horizontal.
 - [ ] Confirmar inicio de sesion real en el administrador.
 - [ ] Ejecutar una compra de prueba y recorrer avance, retroceso y cancelacion.
 - [x] `RIOH_SITEGROUND.zip` regenerado y verificado el 2026-08-05 (23 archivos en la raiz del paquete).

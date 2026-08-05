@@ -443,6 +443,26 @@
 
         .sidebar-footer { margin-top: auto; border-top: 1px solid #333; padding-top: 1.5rem; }
 
+        .admin-signature {
+            width: max-content;
+            margin: 0.75rem auto 0;
+            padding: 0.25rem 0.55rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.78);
+            color: #111;
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            line-height: 1;
+            opacity: 0.72;
+        }
+
+        .admin-signature .signature-planet {
+            display: inline-block;
+            margin-inline: 0.08em;
+            filter: grayscale(1) brightness(0);
+        }
+
         /* ── KANBAN ── */
         .kanban-board {
             display: grid;
@@ -1258,6 +1278,7 @@
             <a class="nav-link" style="color:#666; margin-top:0.5rem; cursor:pointer; font-size:0.8rem;" onclick="doLogout()">
                 <i data-lucide="log-out"></i> SALIR
             </a>
+            <div class="admin-signature">By<span class="signature-planet" aria-hidden="true">🪐</span>DrSaturno</div>
         </div>
     </aside>
 
