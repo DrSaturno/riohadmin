@@ -3194,7 +3194,7 @@ footer {
 /* MOBILE BACKGROUND IMAGES */
 @media (max-width: 868px) {
     .hero {
-        background-image: url('vertical001.jpg');
+        background-image: url('versionmobile.jpeg');
         background-size: cover;
         background-position: center center;
         min-height: 100svh;
