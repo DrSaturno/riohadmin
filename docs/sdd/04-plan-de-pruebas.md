@@ -53,9 +53,10 @@ node --check vendor/qz-tray.js
 ## Pruebas de despliegue
 
 - Confirmar `.htaccess` en raiz del ZIP.
+- Confirmar `vendor/supabase.min.js` y las cinco librerias locales dentro del ZIP.
+- Confirmar las cuatro fuentes WOFF2 dentro de `fonts/`.
 - Confirmar que no haya SQL dentro del ZIP.
 - Confirmar que no haya `.git`, `tmp`, backups ni ZIPs previos dentro del ZIP.
 - Confirmar hash del paquete.
 - Probar en ventana privada luego de extraer en SiteGround.
 - Purgar cache de SiteGround/CDN despues de publicar.
-

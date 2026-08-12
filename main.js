@@ -46,12 +46,27 @@ let currentUser = null;
 let pendingAfterAuth = null;
 
 function initSupabase() {
-    if (typeof window.supabase !== 'undefined') {
+    if (typeof window.supabase === 'undefined') {
+        console.error("Supabase SDK not found");
+        return false;
+    }
+
+    try {
         supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         console.log("Supabase initialized successfully");
-    } else {
-        console.error("Supabase SDK not found");
+        return true;
+    } catch (error) {
+        console.error("Supabase initialization failed:", error);
+        supabaseClient = null;
+        return false;
     }
+}
+
+function showCatalogStartupError() {
+    const loadingMessage = document.querySelector('.catalog-loading');
+    if (!loadingMessage) return;
+    loadingMessage.textContent = 'NO SE PUDO CARGAR LA TIENDA. RECARGA LA PAGINA.';
+    loadingMessage.setAttribute('role', 'alert');
 }
 
 // 3. APP STATE
@@ -306,14 +321,20 @@ function updateFooterHours() {
 
 // 4. INITIALIZATION
 document.addEventListener('DOMContentLoaded', () => {
-    initSupabase();
+    const hasSupabase = initSupabase();
     initListeners();
-    initAuth();
     if (typeof lucide !== 'undefined') lucide.createIcons();
-    loadMenu();
-    fetchMasterStatus();
-    fetchStoreHours();
-    subscribeToStoreChanges();
+
+    if (hasSupabase) {
+        initAuth();
+        loadMenu();
+        fetchMasterStatus();
+        fetchStoreHours();
+        subscribeToStoreChanges();
+    } else {
+        showCatalogStartupError();
+    }
+
     initScrollButtons();
     localStorage.removeItem(GUEST_PROFILE_KEY);
     initializeLastOrderReceipt();

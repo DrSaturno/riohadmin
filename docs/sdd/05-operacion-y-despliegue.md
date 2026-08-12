@@ -4,7 +4,7 @@
 
 - Archivo recomendado para SiteGround: `RIOH_SITEGROUND.zip`
 - Copia fechada de respaldo: `RIOH_SITEGROUND_20260812.zip`
-- SHA-256 esperado: `3FAD85D85B9D7320A4770EA2CE083F90F58EB53423B9C3AE0015CA20F277D8F2`
+- SHA-256 esperado: `D0FD556DC1229EA9B5C74E283EE7F879E79AF57E908671A1CE5543B2A83C014C`
 
 ## Precondicion de base de datos
 
@@ -30,8 +30,9 @@ supabase_seguridad_checkout.sql
 4. Subir `RIOH_SITEGROUND.zip`.
 5. Extraerlo directamente en `public_html`.
 6. Confirmar que `index.html`, `admin.html` y `.htaccess` esten en la raiz.
-7. Purgar cache.
-8. Probar el sitio en ventana privada.
+7. Confirmar que existan `vendor/supabase.min.js` y `fonts/archivo-black-latin.woff2` dentro de `public_html`.
+8. Purgar cache.
+9. Probar el sitio en ventana privada.
 
 ## Rollback
 
@@ -48,4 +49,3 @@ Si aparece un error critico:
 - Confirmar filas correspondientes en `public.admin_usuarios`.
 - Realizar pedido real controlado despues de publicar.
 - Cancelar el pedido de prueba desde admin y verificar stock.
-

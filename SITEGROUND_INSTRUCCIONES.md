@@ -1,6 +1,6 @@
 # Publicacion de RIOH en SiteGround
 
-El paquete `RIOH_SITEGROUND_20260812.zip` esta listo para extraerse directamente dentro de `public_html`.
+El paquete recomendado `RIOH_SITEGROUND.zip` esta listo para extraerse directamente dentro de `public_html`.
 
 ## 1. Paso obligatorio en Supabase
 
@@ -18,10 +18,11 @@ No subir ningun archivo SQL a `public_html`.
 
 1. Abrir **Site Tools > Site > File Manager**.
 2. Entrar a `public_html` y guardar un respaldo del sitio actual.
-3. Subir `RIOH_SITEGROUND_20260812.zip`.
+3. Subir `RIOH_SITEGROUND.zip`.
 4. Extraer el ZIP directamente en `public_html`.
 5. Confirmar que `index.html`, `admin.html` y `.htaccess` queden en la raiz, no dentro de otra carpeta.
-6. Purgar la cache de SiteGround y cualquier CDN activo.
+6. Confirmar que existan `public_html/vendor/supabase.min.js` y `public_html/fonts/archivo-black-latin.woff2`.
+7. Purgar la cache de SiteGround y cualquier CDN activo.
 
 ## 3. Verificacion posterior
 
@@ -31,6 +32,8 @@ No subir ningun archivo SQL a `public_html`.
 4. Probar un cupon y confirmar que el total del panel coincida con el comprobante.
 5. Abrir `/admin`, iniciar sesion y revisar productos, pedidos, clientes, stock y horarios.
 6. Confirmar que el dominio use HTTPS antes de habilitar pedidos reales.
+
+Si el menu queda en "CARGANDO MENU" o el panel informa que no puede cargar autenticacion, revisar primero las carpetas `vendor` y `fonts`: ambas son obligatorias y deben conservarse al extraer el ZIP.
 
 ## Seguridad adicional
 
@@ -42,4 +45,4 @@ El ZIP no contiene SQL, Git, temporales, respaldos ni archivos de desarrollo.
 
 **Generado:** 2026-08-12
 
-**SHA-256:** `3FAD85D85B9D7320A4770EA2CE083F90F58EB53423B9C3AE0015CA20F277D8F2`
+**SHA-256:** `D0FD556DC1229EA9B5C74E283EE7F879E79AF57E908671A1CE5543B2A83C014C`

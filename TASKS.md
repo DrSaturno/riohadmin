@@ -128,17 +128,38 @@ Todo cambio nuevo debe tener:
 
 - [x] `RIOH_SITEGROUND.zip` preparado.
 - [x] Copia fechada `RIOH_SITEGROUND_20260812.zip` preparada.
-- [x] SHA-256 documentado: `3FAD85D85B9D7320A4770EA2CE083F90F58EB53423B9C3AE0015CA20F277D8F2`.
+- [x] SHA-256 documentado: `D0FD556DC1229EA9B5C74E283EE7F879E79AF57E908671A1CE5543B2A83C014C`.
 - [x] ZIP verificado contra carpeta de armado.
 - [x] Instrucciones actualizadas en `SITEGROUND_INSTRUCCIONES.md`.
 - [x] Commit publicado en GitHub: `af76c05`.
+
+## SDD-004 - Incidente de assets ausentes en produccion
+
+**Estado:** Correccion preparada; pendiente de volver a publicar en SiteGround.
+
+### Diagnostico
+
+- El HTML y los archivos principales llegaron a `public_html`.
+- Las carpetas obligatorias `vendor/` y `fonts/` no quedaron publicadas.
+- La ausencia de `vendor/supabase.min.js` impidio inicializar Supabase, cargar el menu y autenticar el panel.
+- La ausencia de las fuentes WOFF2 activo la tipografia de respaldo del navegador.
+
+### Criterios de aceptacion
+
+- [x] El inicio publico evita errores no controlados si no carga el SDK.
+- [x] Los recursos locales tienen una nueva version para invalidar cache de errores 404.
+- [x] El empaquetado se genera desde una lista cerrada con `scripts/build-siteground.ps1`.
+- [x] El empaquetado falla si falta un recurso obligatorio o una ruta no es portable.
+- [x] El ZIP corregido fue extraido y validado desde una carpeta limpia.
+- [ ] Volver a extraer `RIOH_SITEGROUND.zip` en `public_html`.
+- [ ] Confirmar en produccion que menu, fuentes y acceso admin cargan sin errores.
 
 ## Pendientes antes de pedidos reales
 
 - [ ] Subir `RIOH_SITEGROUND.zip` a SiteGround.
 - [ ] Extraer en `public_html`.
 - [ ] Confirmar que `index.html`, `admin.html` y `.htaccess` esten en la raiz.
+- [ ] Confirmar que existan las carpetas `vendor` y `fonts` en `public_html`.
 - [ ] Purgar cache de SiteGround y CDN si aplica.
 - [ ] Hacer una compra real controlada.
 - [ ] Cancelar el pedido de prueba desde admin y verificar stock.
-
