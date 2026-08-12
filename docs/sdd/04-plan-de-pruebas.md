@@ -61,3 +61,22 @@ node --check qz-tray.js
 - Confirmar hash del paquete.
 - Probar en ventana privada luego de extraer en SiteGround.
 - Purgar cache de SiteGround/CDN despues de publicar.
+
+## Verificacion pre-apertura
+
+Ejecutar `supabase_reinicio_pre_apertura.sql` como ultima operacion de datos antes de recibir pedidos reales.
+
+- Confirmar `pedidos = 0`.
+- Confirmar `clientes_con_metricas = 0`.
+- Confirmar `movimientos_stock = 0`.
+- Refrescar Pedidos y Dashboard; ambos deben quedar vacios y con importes en cero.
+- Confirmar que Productos sigue mostrando las hamburguesas, precios, recetas e imagenes existentes.
+- Confirmar que Gestion Stock conserva exactamente las cantidades configuradas antes del reinicio.
+- No crear otro pedido de prueba despues del reinicio. El siguiente pedido debe ser el primero de operacion real.
+
+## Primera operacion real
+
+- Supervisar el primer pedido real de punta a punta.
+- Confirmar numeracion, total, cliente, estado y ticket.
+- Confirmar descuento de stock al aprobar.
+- No cancelar el primer pedido real salvo que la operacion lo requiera.

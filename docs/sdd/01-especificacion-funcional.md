@@ -64,8 +64,8 @@ Preparar un paquete estatico listo para subir a SiteGround con assets locales, r
 
 - ZIP publicable en raiz de `public_html`.
 - `.htaccess` con HTTPS, headers de seguridad, cache y proteccion de archivos internos.
-- Librerias JS locales en `vendor`.
-- Fuentes locales en `fonts`.
+- Librerias JS locales en la raiz del paquete.
+- Fuentes locales WOFF2 en la raiz del paquete.
 - Imagen mobile `versionmobile.webp` en el hero mobile.
 - Instrucciones de despliegue y verificacion.
 
@@ -77,3 +77,55 @@ Preparar un paquete estatico listo para subir a SiteGround con assets locales, r
 - El hash del paquete final queda documentado.
 - La migracion de Supabase esta aplicada antes de publicar.
 
+## SDD-004 - Compatibilidad de assets con SiteGround
+
+Estado: `Publicado y verificado`
+
+### Objetivo
+
+Evitar que la extraccion plana de SiteGround rompa las rutas de librerias y fuentes.
+
+### Alcance
+
+- ZIP sin subcarpetas.
+- HTML, librerias, fuentes e imagenes directamente en `public_html`.
+- Versionado de URLs para invalidar cache de respuestas 404 anteriores.
+- Mensaje controlado si el SDK de Supabase no puede inicializarse.
+
+### Criterios de aceptacion
+
+- La tienda carga menu y fuentes sin solicitudes a `/vendor/` o `/fonts/`.
+- El panel carga Supabase, formulario de acceso y fuentes sin errores de assets.
+- El script de empaquetado rechaza subcarpetas y archivos obligatorios ausentes.
+- El responsable confirma el funcionamiento en produccion.
+
+## SDD-005 - Reinicio pre-apertura
+
+Estado: `Implementado; pendiente de ejecucion en Supabase`
+
+### Objetivo
+
+Comenzar la operacion real con pedidos, dashboard y metricas de venta en cero sin alterar el menu ni el inventario configurado.
+
+### Alcance
+
+- Respaldar pedidos, clientes, movimientos y beneficios en el schema privado `rioh_backups`.
+- Eliminar pedidos de prueba y sus movimientos asociados.
+- Reiniciar metricas acumuladas de clientes.
+- Reiniciar usos de cupones y promociones.
+- Reiniciar la secuencia de numero de pedido cuando PostgreSQL la exponga.
+
+### Fuera de alcance
+
+- Productos y hamburguesas.
+- Categorias, recetas, precios e imagenes.
+- Insumos y cantidades actuales de stock.
+- Configuracion del negocio.
+- Usuarios de Supabase Auth y autorizaciones administrativas.
+
+### Criterios de aceptacion
+
+- La consulta final devuelve `pedidos = 0`, `clientes_con_metricas = 0` y `movimientos_stock = 0`.
+- La huella completa de `public.productos` es identica antes y despues.
+- El inventario queda exactamente en su valor previo al reinicio.
+- La consulta no puede ejecutarse por segunda vez accidentalmente con el mismo respaldo.

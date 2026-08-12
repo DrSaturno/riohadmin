@@ -14,6 +14,7 @@
 - Seguridad y privacidad: `docs/sdd/03-seguridad-y-privacidad.md`
 - Plan de pruebas: `docs/sdd/04-plan-de-pruebas.md`
 - Operacion y despliegue: `docs/sdd/05-operacion-y-despliegue.md`
+- Handoff operativo: `docs/sdd/06-handoff-operativo.md`
 
 ## Regla de trabajo
 
@@ -68,8 +69,7 @@ Todo cambio nuevo debe tener:
 - [x] Guia de ticketera documentada en `GUIA_CONFIGURACION_TICKETERA.md`.
 - [x] Migracion `supabase_migracion_productos_integral.sql` preparada y validada.
 - [x] Migracion base ejecutada en Supabase el 2026-08-05.
-- [ ] Confirmar usuario administrador final en Supabase Auth.
-- [ ] Confirmar filas finales en `public.admin_usuarios`.
+- [x] Acceso administrativo en produccion confirmado por el responsable el 2026-08-12.
 - [ ] Confirmar stock inicial real de Cebolla Morada.
 
 ### Verificacion realizada
@@ -108,7 +108,7 @@ Todo cambio nuevo debe tener:
 
 - [x] `node --check main.js`.
 - [x] `node --check admin.js`.
-- [x] Validacion de vendor JS local.
+- [x] Validacion de librerias JS locales.
 - [x] Revision de dependencias runtime externas.
 - [x] Revision de credenciales privadas.
 - [x] Prueba HTTP local con respuesta 200.
@@ -120,7 +120,7 @@ Todo cambio nuevo debe tener:
 ### Especificacion
 
 - Entregar sitio estatico listo para `public_html`.
-- Incluir assets optimizados, fuentes locales y vendor local.
+- Incluir assets optimizados, fuentes y librerias locales en una estructura plana.
 - Incluir `.htaccess` con seguridad, cache y compresion.
 - Documentar pasos de despliegue y rollback.
 
@@ -131,11 +131,11 @@ Todo cambio nuevo debe tener:
 - [x] SHA-256 documentado: `9E6433C2B75BD62D46DB4272FA9B1B720EA039E5DE7F3C444232BF63B584DE72`.
 - [x] ZIP verificado contra carpeta de armado.
 - [x] Instrucciones actualizadas en `SITEGROUND_INSTRUCCIONES.md`.
-- [x] Commit publicado en GitHub: `af76c05`.
+- [x] Commit funcional publicado en GitHub: `325d37e`.
 
 ## SDD-004 - Incidente de assets ausentes en produccion
 
-**Estado:** Correccion preparada; pendiente de volver a publicar en SiteGround.
+**Estado:** Publicado y confirmado en produccion.
 
 ### Diagnostico
 
@@ -151,15 +151,36 @@ Todo cambio nuevo debe tener:
 - [x] El empaquetado se genera desde una lista cerrada y plana con `scripts/build-siteground.ps1`.
 - [x] El empaquetado falla si falta un recurso obligatorio o una ruta no es portable.
 - [x] El ZIP corregido fue extraido y validado desde una carpeta limpia.
-- [ ] Volver a extraer `RIOH_SITEGROUND.zip` en `public_html`.
-- [ ] Confirmar en produccion que menu, fuentes y acceso admin cargan sin errores.
+- [x] `RIOH_SITEGROUND.zip` plano extraido en `public_html`.
+- [x] Menu, fuentes y acceso admin confirmados en produccion por el responsable.
+
+## SDD-005 - Reinicio pre-apertura
+
+**Estado:** Consulta preparada; pendiente de ejecucion/confirmacion en Supabase.
+
+### Objetivo
+
+- Iniciar la operacion real con pedidos y metricas en cero.
+- Conservar hamburguesas, productos, recetas, precios, imagenes, configuracion e inventario actual.
+- Mantener un respaldo privado recuperable de los datos de prueba.
+
+### Criterios de aceptacion
+
+- [x] Consulta `supabase_reinicio_pre_apertura.sql` preparada.
+- [x] Respaldo privado previo incluido en la transaccion.
+- [x] Verificacion automatica de que `public.productos` no cambia.
+- [x] El stock actual queda fuera de las operaciones de reinicio.
+- [ ] Consulta ejecutada una sola vez en Supabase.
+- [ ] Resultado final confirmado con tres valores en cero.
+- [ ] Dashboard y Pedidos verificados vacios.
+- [ ] Productos y Gestion Stock verificados sin cambios.
 
 ## Pendientes antes de pedidos reales
 
-- [ ] Subir `RIOH_SITEGROUND.zip` a SiteGround.
-- [ ] Extraer en `public_html`.
-- [ ] Confirmar que `index.html`, `admin.html` y `.htaccess` esten en la raiz.
-- [ ] Confirmar que librerias y fuentes existan directamente en `public_html`.
-- [ ] Purgar cache de SiteGround y CDN si aplica.
-- [ ] Hacer una compra real controlada.
-- [ ] Cancelar el pedido de prueba desde admin y verificar stock.
+- [x] Sitio plano publicado y cache actualizado.
+- [x] Tienda y admin confirmados funcionando.
+- [ ] Ejecutar y confirmar el reinicio pre-apertura.
+- [ ] Confirmar que el resultado final muestre pedidos, metricas y movimientos en cero.
+- [ ] Confirmar stock inicial real de Cebolla Morada.
+- [ ] No crear pedidos de prueba despues del reinicio.
+- [ ] Supervisar el primer pedido real y confirmar el descuento de stock.

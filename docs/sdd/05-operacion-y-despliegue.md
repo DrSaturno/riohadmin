@@ -5,6 +5,8 @@
 - Archivo recomendado para SiteGround: `RIOH_SITEGROUND.zip`
 - Copia fechada de respaldo: `RIOH_SITEGROUND_20260812.zip`
 - SHA-256 esperado: `9E6433C2B75BD62D46DB4272FA9B1B720EA039E5DE7F3C444232BF63B584DE72`
+- Estructura: 30 archivos en la raiz, sin subcarpetas.
+- Commit funcional correspondiente: `325d37e`.
 
 ## Precondicion de base de datos
 
@@ -34,6 +36,26 @@ supabase_seguridad_checkout.sql
 8. Purgar cache.
 9. Probar el sitio en ventana privada.
 
+La estructura plana es intencional. No crear carpetas `vendor` o `fonts` en SiteGround con esta version.
+
+## Acceso administrador
+
+- URL: `/admin` o `/admin.html`.
+- Usuario: email de una cuenta existente en Supabase Auth.
+- Autorizacion adicional: fila con `activo = true` en `public.admin_usuarios`.
+- El identificador historico `admin` ya no es una credencial valida.
+- El responsable confirmo acceso correcto al panel en produccion el 2026-08-12.
+
+## Reinicio pre-apertura
+
+1. Ejecutar `supabase_reinicio_pre_apertura.sql` una sola vez en Supabase SQL Editor.
+2. Verificar que la fila final muestre tres ceros.
+3. Refrescar Pedidos, Dashboard y CRM.
+4. Confirmar Productos y Gestion Stock sin cambios.
+5. No generar nuevos pedidos de prueba despues del reinicio.
+
+La consulta conserva clientes y cuentas, pero reinicia sus metricas. Tambien crea respaldos privados en `rioh_backups`. No restaura stock de pedidos de prueba: el inventario queda exactamente como estaba antes de ejecutar la consulta.
+
 ## Rollback
 
 Si aparece un error critico:
@@ -45,7 +67,6 @@ Si aparece un error critico:
 
 ## Pendientes operativos
 
-- Confirmar usuario administrador final en Supabase Auth.
-- Confirmar filas correspondientes en `public.admin_usuarios`.
-- Realizar pedido real controlado despues de publicar.
-- Cancelar el pedido de prueba desde admin y verificar stock.
+- Ejecutar una sola vez `supabase_reinicio_pre_apertura.sql` antes de comenzar a recibir pedidos reales.
+- Confirmar que pedidos, metricas de clientes y movimientos historicos queden en cero.
+- Supervisar el primer pedido real y confirmar descuento de stock.
