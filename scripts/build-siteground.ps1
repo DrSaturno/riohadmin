@@ -17,11 +17,11 @@ $publicFiles = @(
     "favicon.png",
     "fondo01.jpg",
     "fonts.css",
-    "fonts/archivo-black-latin.woff2",
-    "fonts/inter-latin.woff2",
-    "fonts/OFL.txt",
-    "fonts/outfit-latin.woff2",
-    "fonts/syne-latin.woff2",
+    "archivo-black-latin.woff2",
+    "inter-latin.woff2",
+    "OFL.txt",
+    "outfit-latin.woff2",
+    "syne-latin.woff2",
     "fresh_bloom.webp",
     "index.html",
     "main.js",
@@ -31,11 +31,11 @@ $publicFiles = @(
     "nuggets.webp",
     "papas.webp",
     "style.css",
-    "vendor/jspdf.plugin.autotable.min.js",
-    "vendor/jspdf.umd.min.js",
-    "vendor/lucide.min.js",
-    "vendor/qz-tray.js",
-    "vendor/supabase.min.js",
+    "jspdf.plugin.autotable.min.js",
+    "jspdf.umd.min.js",
+    "lucide.min.js",
+    "qz-tray.js",
+    "supabase.min.js",
     "versionmobile.webp"
 )
 
@@ -77,13 +77,13 @@ $verificationArchive = [System.IO.Compression.ZipFile]::OpenRead($resolvedOutput
 try {
     $entryNames = @($verificationArchive.Entries | ForEach-Object FullName)
     $missingEntries = @($publicFiles | Where-Object { $_ -notin $entryNames })
-    $invalidEntries = @($entryNames | Where-Object { $_ -match "\\" })
+    $invalidEntries = @($entryNames | Where-Object { $_ -match "[\\/]" })
 
     if ($missingEntries.Count -gt 0) {
         throw "El ZIP no contiene: $($missingEntries -join ', ')"
     }
     if ($invalidEntries.Count -gt 0) {
-        throw "El ZIP contiene rutas no portables: $($invalidEntries -join ', ')"
+        throw "El ZIP contiene rutas que no son planas: $($invalidEntries -join ', ')"
     }
     if ($entryNames.Count -ne $publicFiles.Count) {
         throw "Cantidad inesperada de archivos en el ZIP: $($entryNames.Count)"

@@ -21,7 +21,7 @@ No subir ningun archivo SQL a `public_html`.
 3. Subir `RIOH_SITEGROUND.zip`.
 4. Extraer el ZIP directamente en `public_html`.
 5. Confirmar que `index.html`, `admin.html` y `.htaccess` queden en la raiz, no dentro de otra carpeta.
-6. Confirmar que existan `public_html/vendor/supabase.min.js` y `public_html/fonts/archivo-black-latin.woff2`.
+6. Confirmar que existan `public_html/supabase.min.js` y `public_html/archivo-black-latin.woff2`.
 7. Purgar la cache de SiteGround y cualquier CDN activo.
 
 ## 3. Verificacion posterior
@@ -33,7 +33,7 @@ No subir ningun archivo SQL a `public_html`.
 5. Abrir `/admin`, iniciar sesion y revisar productos, pedidos, clientes, stock y horarios.
 6. Confirmar que el dominio use HTTPS antes de habilitar pedidos reales.
 
-Si el menu queda en "CARGANDO MENU" o el panel informa que no puede cargar autenticacion, revisar primero las carpetas `vendor` y `fonts`: ambas son obligatorias y deben conservarse al extraer el ZIP.
+El paquete usa una estructura plana: todos los archivos deben quedar directamente en `public_html`. Esto evita incompatibilidades con extractores que no conservan las carpetas internas del ZIP.
 
 ## Seguridad adicional
 
@@ -45,4 +45,4 @@ El ZIP no contiene SQL, Git, temporales, respaldos ni archivos de desarrollo.
 
 **Generado:** 2026-08-12
 
-**SHA-256:** `D0FD556DC1229EA9B5C74E283EE7F879E79AF57E908671A1CE5543B2A83C014C`
+**SHA-256:** `9E6433C2B75BD62D46DB4272FA9B1B720EA039E5DE7F3C444232BF63B584DE72`

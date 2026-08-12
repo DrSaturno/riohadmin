@@ -128,7 +128,7 @@ Todo cambio nuevo debe tener:
 
 - [x] `RIOH_SITEGROUND.zip` preparado.
 - [x] Copia fechada `RIOH_SITEGROUND_20260812.zip` preparada.
-- [x] SHA-256 documentado: `D0FD556DC1229EA9B5C74E283EE7F879E79AF57E908671A1CE5543B2A83C014C`.
+- [x] SHA-256 documentado: `9E6433C2B75BD62D46DB4272FA9B1B720EA039E5DE7F3C444232BF63B584DE72`.
 - [x] ZIP verificado contra carpeta de armado.
 - [x] Instrucciones actualizadas en `SITEGROUND_INSTRUCCIONES.md`.
 - [x] Commit publicado en GitHub: `af76c05`.
@@ -140,15 +140,15 @@ Todo cambio nuevo debe tener:
 ### Diagnostico
 
 - El HTML y los archivos principales llegaron a `public_html`.
-- Las carpetas obligatorias `vendor/` y `fonts/` no quedaron publicadas.
-- La ausencia de `vendor/supabase.min.js` impidio inicializar Supabase, cargar el menu y autenticar el panel.
+- SiteGround dejo las dependencias y fuentes en la raiz, pero el HTML las buscaba dentro de `vendor/` y `fonts/`.
+- La ruta inexistente `vendor/supabase.min.js` impidio inicializar Supabase, cargar el menu y autenticar el panel.
 - La ausencia de las fuentes WOFF2 activo la tipografia de respaldo del navegador.
 
 ### Criterios de aceptacion
 
 - [x] El inicio publico evita errores no controlados si no carga el SDK.
 - [x] Los recursos locales tienen una nueva version para invalidar cache de errores 404.
-- [x] El empaquetado se genera desde una lista cerrada con `scripts/build-siteground.ps1`.
+- [x] El empaquetado se genera desde una lista cerrada y plana con `scripts/build-siteground.ps1`.
 - [x] El empaquetado falla si falta un recurso obligatorio o una ruta no es portable.
 - [x] El ZIP corregido fue extraido y validado desde una carpeta limpia.
 - [ ] Volver a extraer `RIOH_SITEGROUND.zip` en `public_html`.
@@ -159,7 +159,7 @@ Todo cambio nuevo debe tener:
 - [ ] Subir `RIOH_SITEGROUND.zip` a SiteGround.
 - [ ] Extraer en `public_html`.
 - [ ] Confirmar que `index.html`, `admin.html` y `.htaccess` esten en la raiz.
-- [ ] Confirmar que existan las carpetas `vendor` y `fonts` en `public_html`.
+- [ ] Confirmar que librerias y fuentes existan directamente en `public_html`.
 - [ ] Purgar cache de SiteGround y CDN si aplica.
 - [ ] Hacer una compra real controlada.
 - [ ] Cancelar el pedido de prueba desde admin y verificar stock.

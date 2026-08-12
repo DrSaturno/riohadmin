@@ -4,7 +4,7 @@
 
 - Archivo recomendado para SiteGround: `RIOH_SITEGROUND.zip`
 - Copia fechada de respaldo: `RIOH_SITEGROUND_20260812.zip`
-- SHA-256 esperado: `D0FD556DC1229EA9B5C74E283EE7F879E79AF57E908671A1CE5543B2A83C014C`
+- SHA-256 esperado: `9E6433C2B75BD62D46DB4272FA9B1B720EA039E5DE7F3C444232BF63B584DE72`
 
 ## Precondicion de base de datos
 
@@ -30,7 +30,7 @@ supabase_seguridad_checkout.sql
 4. Subir `RIOH_SITEGROUND.zip`.
 5. Extraerlo directamente en `public_html`.
 6. Confirmar que `index.html`, `admin.html` y `.htaccess` esten en la raiz.
-7. Confirmar que existan `vendor/supabase.min.js` y `fonts/archivo-black-latin.woff2` dentro de `public_html`.
+7. Confirmar que existan `supabase.min.js` y `archivo-black-latin.woff2` directamente dentro de `public_html`.
 8. Purgar cache.
 9. Probar el sitio en ventana privada.
 

@@ -12,11 +12,11 @@ node --check admin.js
 Si se validan librerias locales:
 
 ```powershell
-node --check vendor/lucide.min.js
-node --check vendor/supabase.min.js
-node --check vendor/jspdf.umd.min.js
-node --check vendor/jspdf.plugin.autotable.min.js
-node --check vendor/qz-tray.js
+node --check lucide.min.js
+node --check supabase.min.js
+node --check jspdf.umd.min.js
+node --check jspdf.plugin.autotable.min.js
+node --check qz-tray.js
 ```
 
 ## Pruebas visuales publicas
@@ -53,8 +53,9 @@ node --check vendor/qz-tray.js
 ## Pruebas de despliegue
 
 - Confirmar `.htaccess` en raiz del ZIP.
-- Confirmar `vendor/supabase.min.js` y las cinco librerias locales dentro del ZIP.
-- Confirmar las cuatro fuentes WOFF2 dentro de `fonts/`.
+- Confirmar `supabase.min.js` y las cinco librerias locales en la raiz del ZIP.
+- Confirmar las cuatro fuentes WOFF2 en la raiz del ZIP.
+- Confirmar que el ZIP no contenga subcarpetas.
 - Confirmar que no haya SQL dentro del ZIP.
 - Confirmar que no haya `.git`, `tmp`, backups ni ZIPs previos dentro del ZIP.
 - Confirmar hash del paquete.
