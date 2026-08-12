@@ -1,14 +1,33 @@
-# TASKS.md — Seguimiento SDD
+# TASKS.md - Seguimiento SDD
 
 **Proyecto:** RIOH Admin / tienda online
 
 **Metodologia:** Spec-Driven Development (SDD)
 
-**Ultima actualizacion:** 2026-08-05
+**Ultima actualizacion:** 2026-08-12
 
-## SDD-001 — Gestion integral de productos, categorias y stock
+## Indice SDD
 
-**Estado:** Implementacion completada; migracion aplicada; verificacion operativa pendiente.
+- Proceso: `docs/sdd/00-proceso-sdd.md`
+- Especificacion funcional: `docs/sdd/01-especificacion-funcional.md`
+- Arquitectura y contratos: `docs/sdd/02-arquitectura-y-contratos.md`
+- Seguridad y privacidad: `docs/sdd/03-seguridad-y-privacidad.md`
+- Plan de pruebas: `docs/sdd/04-plan-de-pruebas.md`
+- Operacion y despliegue: `docs/sdd/05-operacion-y-despliegue.md`
+
+## Regla de trabajo
+
+Todo cambio nuevo debe tener:
+
+- Objetivo.
+- Alcance.
+- Criterios de aceptacion.
+- Impacto en datos, seguridad y despliegue.
+- Evidencia de verificacion.
+
+## SDD-001 - Gestion integral de productos, categorias y stock
+
+**Estado:** Publicado.
 
 ### Especificacion
 
@@ -36,47 +55,90 @@
 - [x] Alta controlada del insumo Cebolla Morada.
 - [x] Textos de WhatsApp y bloque de Instagram ajustados.
 - [x] Titulo `FOLLOW THE VIBE` eliminado; se conserva unicamente el enlace visual a Instagram.
-- [x] Fondos de categorias corregidos: Hamburguesas usa `nueva1.jpeg`, Extras usa `nuevaDESIGN.jpg.jpeg` y las categorias futuras alternan ambos fondos segun su orden.
-- [x] Titulos y descripciones visibles en todas las secciones del catalogo con tratamiento visual RIOH y espaciado responsive.
-- [x] Auditoria mobile completada entre 320 px y 430 px: titulos fluidos sin cortes internos, textos con salto seguro y ultima tarjeta impar centrada.
-- [x] Firma `By🪐DrSaturno` incorporada de forma sutil en el footer publico y debajo de Salir en el tablero; leyenda anterior eliminada.
-- [x] Centrado mobile del footer corregido: columnas, descripcion, horarios, copyright y firma alineados al eje de la pantalla.
+- [x] Fondos de categorias corregidos.
+- [x] Titulos y descripciones visibles en todas las secciones del catalogo.
+- [x] Auditoria mobile completada entre 320 px y 430 px.
+- [x] Firma incorporada de forma sutil en footer publico y tablero.
+- [x] Footer mobile centrado.
 
 ### Implementacion y datos
 
 - [x] Frontend y administrador actualizados.
-- [x] Carpeta `entrega_siteground` sincronizada con los fuentes.
-- [x] Guia operativa de categorias, orden, stock y recetas documentada en `GUIA_ADMIN_PRODUCTOS.md`.
-- [x] Guia de instalacion, conexion y prueba de la ticketera documentada en `GUIA_CONFIGURACION_TICKETERA.md`.
+- [x] Guia operativa documentada en `GUIA_ADMIN_PRODUCTOS.md`.
+- [x] Guia de ticketera documentada en `GUIA_CONFIGURACION_TICKETERA.md`.
 - [x] Migracion `supabase_migracion_productos_integral.sql` preparada y validada.
-- [x] Migracion ejecutada en Supabase por el responsable del proyecto el 2026-08-05.
-- [ ] Crear el usuario administrador en Supabase Auth y asociarlo a `public.admin_usuarios`.
-- [ ] Confirmar el valor real cargado para el stock inicial de Cebolla Morada.
+- [x] Migracion base ejecutada en Supabase el 2026-08-05.
+- [ ] Confirmar usuario administrador final en Supabase Auth.
+- [ ] Confirmar filas finales en `public.admin_usuarios`.
+- [ ] Confirmar stock inicial real de Cebolla Morada.
 
 ### Verificacion realizada
 
 - [x] Sintaxis de `admin.js` y `main.js` validada con Node.js.
-- [x] Estructura de `admin.html` e `index.html` validada.
-- [x] Migracion PostgreSQL parseada correctamente: 103 sentencias.
-- [x] Fuentes y carpeta de entrega comparados por hash.
-- [x] Version publicada en `main` y desplegada correctamente en Vercel el 2026-08-05.
-- [x] Catalogo verificado en navegador real a 320 px, 360 px, 390 px y 430 px sin desbordamiento horizontal.
-- [x] Proyecto vinculado localmente con Vercel y despliegue manual de produccion completado el 2026-08-05 tras omitirse el deploy automatico del commit `d7b939f`.
-- [ ] Confirmar inicio de sesion real en el administrador.
-- [ ] Ejecutar una compra de prueba y recorrer avance, retroceso y cancelacion.
-- [x] `RIOH_SITEGROUND.zip` regenerado y verificado el 2026-08-05 (23 archivos en la raiz del paquete).
+- [x] Estructura de `admin.html` e `index.html` revisada.
+- [x] Migracion PostgreSQL base parseada correctamente.
+- [x] Catalogo verificado en navegador real a 320 px, 360 px, 390 px y 430 px.
+- [x] Version publicada en `main`.
 
-### Decisiones tecnicas
+## SDD-002 - Checkout seguro y privacidad
 
-- Las categorias son datos administrables, no constantes del frontend.
-- Un producto utilizado por pedidos se desactiva en lugar de eliminarse.
-- Un pedido cancelado se conserva para auditoria.
-- El ledger `movimientos_stock_pedido` es la fuente para restaurar exactamente el stock descontado.
-- El acceso administrativo requiere una cuenta activa tanto en Supabase Auth como en `admin_usuarios`.
-- El orden se gestiona con enteros ascendentes; se recomiendan intervalos de diez.
-- Un producto con receta obtiene su disponibilidad desde los insumos y no utiliza el stock directo.
-- El consumo doble se calcula por ingrediente mediante `cantidad simple x doble_mult`.
+**Estado:** Publicado; migracion aplicada en Supabase el 2026-08-12.
 
-### Proximo paso
+### Especificacion
 
-Crear el usuario de Supabase Auth, validar el acceso administrativo y completar una compra de prueba de punta a punta antes de publicar en SiteGround.
+- Calcular precios, descuentos, cupones y disponibilidad en Supabase.
+- Evitar escritura directa publica sobre tablas sensibles.
+- Mantener pedidos idempotentes.
+- Reducir persistencia de datos personales de invitados.
+- Bloquear acceso publico innecesario a clientes, pedidos, cupones, promociones, stock e inventario.
+
+### Criterios de aceptacion
+
+- [x] RPC de cotizacion de carrito instalada.
+- [x] RPC de creacion de pedido instalada.
+- [x] RPC de menu publico instalada.
+- [x] Transiciones de estado administrativas protegidas.
+- [x] RLS y grants ajustados.
+- [x] Comprobantes locales de invitados con vencimiento de 24 horas.
+- [x] Frontend publico sin escrituras directas a tablas sensibles.
+- [x] Migracion `supabase_seguridad_checkout.sql` validada por parser PostgreSQL.
+- [x] Migracion ejecutada en Supabase por el responsable del proyecto.
+
+### Verificacion realizada
+
+- [x] `node --check main.js`.
+- [x] `node --check admin.js`.
+- [x] Validacion de vendor JS local.
+- [x] Revision de dependencias runtime externas.
+- [x] Revision de credenciales privadas.
+- [x] Prueba HTTP local con respuesta 200.
+
+## SDD-003 - Paquete SiteGround
+
+**Estado:** Publicado y subido a GitHub.
+
+### Especificacion
+
+- Entregar sitio estatico listo para `public_html`.
+- Incluir assets optimizados, fuentes locales y vendor local.
+- Incluir `.htaccess` con seguridad, cache y compresion.
+- Documentar pasos de despliegue y rollback.
+
+### Criterios de aceptacion
+
+- [x] `RIOH_SITEGROUND.zip` preparado.
+- [x] Copia fechada `RIOH_SITEGROUND_20260812.zip` preparada.
+- [x] SHA-256 documentado: `3FAD85D85B9D7320A4770EA2CE083F90F58EB53423B9C3AE0015CA20F277D8F2`.
+- [x] ZIP verificado contra carpeta de armado.
+- [x] Instrucciones actualizadas en `SITEGROUND_INSTRUCCIONES.md`.
+- [x] Commit publicado en GitHub: `af76c05`.
+
+## Pendientes antes de pedidos reales
+
+- [ ] Subir `RIOH_SITEGROUND.zip` a SiteGround.
+- [ ] Extraer en `public_html`.
+- [ ] Confirmar que `index.html`, `admin.html` y `.htaccess` esten en la raiz.
+- [ ] Purgar cache de SiteGround y CDN si aplica.
+- [ ] Hacer una compra real controlada.
+- [ ] Cancelar el pedido de prueba desde admin y verificar stock.
+
