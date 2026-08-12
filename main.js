@@ -57,34 +57,25 @@ function initSupabase() {
 // 3. APP STATE
 let menuData = [];
 let productCategories = [];
-let ingredientInventory = [];
 let extraInventoryRules = [];
 let cart = [];
-let activePromos = [];
 let appliedCoupon = null;
+let currentSecureQuote = null;
 let currentProduct = null;
 let currentQty = 1;
 let currentType = "Simple";
 let currentDeliveryMethod = "delivery";
-let isMasterOnline = true;
+let isMasterOnline = false;
 let upsellQtys = {};
 let selectedPayMethod = null;
-let catalogRefreshTimer = null;
-
-const LEGACY_CATEGORIES = [
-    { id: 'legacy-burgers', slug: 'burgers', nombre: 'Burgers', descripcion: '', tipo_venta: 'configurable', activo: true, orden: 0 },
-    { id: 'legacy-extras', slug: 'extras', nombre: 'Para acompañar', descripcion: '', tipo_venta: 'directo', activo: true, orden: 1 }
-];
-
-const LEGACY_EXTRA_INGREDIENT_RULES = {
-    'medallon extra': { search: ['medallon'], quantity: 1 },
-    'extra cheddar': { search: ['cheddar'], quantity: 2 },
-    'extra bacon': { search: ['panceta ahumada'], quantity: 2 }
-};
+let secureQuoteRequestId = 0;
+let pendingOrderAttempt = null;
 
 const RIOH_WHATSAPP_NUMBER = '5491136082374';
 const LAST_ORDER_KEY = 'rioh_last_order_v1';
 const GUEST_PROFILE_KEY = 'rioh_checkout_profile_v1';
+const LAST_ORDER_TTL_MS = 24 * 60 * 60 * 1000;
+const STORE_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 const DELIVERY_PREP_MINUTES = 30;
 const DELIVERY_SLOT_MINUTES = 15;
 const DELIVERY_ZONE_KEYS = new Set([
@@ -93,8 +84,24 @@ const DELIVERY_ZONE_KEYS = new Set([
     'belgrano',
     'florida',
     'villa-martelli',
-    'villa-urquiza'
+    'villa-urquiza',
+    'vicente-lopez'
 ]);
+const OPTIMIZED_LOCAL_IMAGES = new Map([
+    ['malbec_rich.jpg', 'malbec_rich.webp'],
+    ['cheddar_soul.jpg', 'cheddar_soul.webp'],
+    ['crunchy_byte.jpg', 'crunchy_byte.webp'],
+    ['fresh_bloom.jpg', 'fresh_bloom.webp'],
+    ['burger1.png', 'burger1.webp'],
+    ['nuggets.png', 'nuggets.webp'],
+    ['papas.png', 'papas.webp']
+]);
+
+function optimizedLocalImage(value) {
+    const raw = String(value || '').trim();
+    if (!raw || /^(?:https?:)?\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+    return OPTIMIZED_LOCAL_IMAGES.get(raw.replace(/^\.\//, '')) || raw;
+}
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -138,10 +145,6 @@ function getCategoryBackgroundClass(category, sectionIndex) {
     return sectionIndex % 2 === 0 ? 'category-background-a' : 'category-background-b';
 }
 
-function normalizePhone(value) {
-    return String(value || '').replace(/\D/g, '');
-}
-
 function formatExtra(extra) {
     if (typeof extra === 'string') return extra;
     if (!extra || !extra.name) return '';
@@ -156,15 +159,29 @@ function formatExtras(extras) {
 function readStoredJson(key) {
     try {
         const raw = localStorage.getItem(key);
-        return raw ? JSON.parse(raw) : null;
+        if (!raw) return null;
+        const stored = JSON.parse(raw);
+        if (!stored || typeof stored !== 'object' || !stored.expiresAt || !('value' in stored)) {
+            localStorage.removeItem(key);
+            return null;
+        }
+        if (Date.now() >= Number(stored.expiresAt)) {
+            localStorage.removeItem(key);
+            return null;
+        }
+        return stored.value;
     } catch (_) {
+        localStorage.removeItem(key);
         return null;
     }
 }
 
-function writeStoredJson(key, value) {
+function writeStoredJson(key, value, ttlMs) {
     try {
-        localStorage.setItem(key, JSON.stringify(value));
+        localStorage.setItem(key, JSON.stringify({
+            value,
+            expiresAt: Date.now() + ttlMs
+        }));
         return true;
     } catch (_) {
         return false;
@@ -175,10 +192,6 @@ function writeStoredJson(key, value) {
 let storeHoursConfig = null;
 
 function getStoreStatus() {
-    if (localStorage.getItem('rioh_demo') === '1') {
-        return { open: true };
-    }
-
     // Toggle ON = manual override, store is ALWAYS open
     if (isMasterOnline) {
         return { open: true };
@@ -186,9 +199,9 @@ function getStoreStatus() {
 
     // Toggle OFF = check if we're within scheduled hours (automatic mode)
     if (storeHoursConfig && storeHoursConfig.dias && storeHoursConfig.dias.length) {
-        const now = new Date();
-        const currentDay = now.getDay();
-        const currentTime = now.getHours() * 60 + now.getMinutes();
+        const now = getZonedDateParts(new Date());
+        const currentDay = now.weekday;
+        const currentTime = now.hour * 60 + now.minute;
 
         const [openH, openM] = (storeHoursConfig.hora_apertura || '18:00').split(':').map(Number);
         const [closeH, closeM] = (storeHoursConfig.hora_cierre || '00:00').split(':').map(Number);
@@ -220,8 +233,7 @@ function getStoreStatus() {
     // Toggle OFF + outside hours = closed
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
     if (storeHoursConfig && storeHoursConfig.dias && storeHoursConfig.dias.length) {
-        const now = new Date();
-        const currentDay = now.getDay();
+        const currentDay = getZonedDateParts(new Date()).weekday;
         const nextDay = storeHoursConfig.dias.find(d => d > currentDay) ?? storeHoursConfig.dias[0];
         const nextDayName = dayNames[nextDay] || '';
         const nextTime = storeHoursConfig.hora_apertura || '18:00';
@@ -229,6 +241,44 @@ function getStoreStatus() {
     }
 
     return { open: false, nextOpening: 'cuando la tienda vuelva a abrir' };
+}
+
+function getZonedDateParts(date) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: STORE_TIME_ZONE,
+        weekday: 'short',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23'
+    }).formatToParts(date).reduce((result, part) => {
+        result[part.type] = part.value;
+        return result;
+    }, {});
+    const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    return {
+        year: Number(parts.year),
+        month: Number(parts.month),
+        day: Number(parts.day),
+        hour: Number(parts.hour),
+        minute: Number(parts.minute),
+        second: Number(parts.second),
+        weekday: weekdayMap[parts.weekday]
+    };
+}
+
+function zonedLocalToInstant(year, month, day, hour, minute) {
+    let guess = Date.UTC(year, month - 1, day, hour, minute, 0);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const actual = getZonedDateParts(new Date(guess));
+        const desiredUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+        const actualUtc = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, 0);
+        guess += desiredUtc - actualUtc;
+    }
+    return new Date(guess);
 }
 
 async function fetchStoreHours() {
@@ -247,7 +297,11 @@ function updateFooterHours() {
     if (!el || !storeHoursConfig) return;
     const dayNames = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
     const days = (storeHoursConfig.dias || []).map(d => dayNames[d]).join(', ');
-    el.innerHTML = `${days}<br>${storeHoursConfig.hora_apertura || '18:00'} a ${storeHoursConfig.hora_cierre || '00:00'}`;
+    el.replaceChildren(
+        document.createTextNode(days),
+        document.createElement('br'),
+        document.createTextNode(`${storeHoursConfig.hora_apertura || '18:00'} a ${storeHoursConfig.hora_cierre || '00:00'}`)
+    );
 }
 
 // 4. INITIALIZATION
@@ -257,12 +311,11 @@ document.addEventListener('DOMContentLoaded', () => {
     initAuth();
     if (typeof lucide !== 'undefined') lucide.createIcons();
     loadMenu();
-    loadActivePromos();
     fetchMasterStatus();
     fetchStoreHours();
     subscribeToStoreChanges();
     initScrollButtons();
-    restoreGuestCheckoutProfile();
+    localStorage.removeItem(GUEST_PROFILE_KEY);
     initializeLastOrderReceipt();
 
     // Initial status check
@@ -273,19 +326,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function fetchMasterStatus() {
-    // Demo mode override: skip Supabase check
-    if (localStorage.getItem('rioh_demo') === '1') {
-        isMasterOnline = true;
-        showDemoBanner();
-        return;
-    }
-
-    // Check localStorage fallback (set by admin panel when Supabase write fails)
-    const localOverride = localStorage.getItem('rioh_master_online');
-    if (localOverride !== null) {
-        isMasterOnline = localOverride === '1';
-    }
-
     if (!supabaseClient) return;
     try {
         const { data } = await supabaseClient.from('configuracion').select('valor').eq('id', 'ventas_web').maybeSingle();
@@ -318,33 +358,10 @@ function subscribeToStoreChanges() {
                 updateFooterHours();
                 console.log('Store hours updated via Realtime:', storeHoursConfig);
             }
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, scheduleCatalogRefresh)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'insumos' }, scheduleCatalogRefresh)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'extras_inventario' }, scheduleCatalogRefresh)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'categorias_productos' }, scheduleCatalogRefresh);
+        });
 
     channel.subscribe();
-}
-
-function scheduleCatalogRefresh() {
-    clearTimeout(catalogRefreshTimer);
-    catalogRefreshTimer = setTimeout(() => loadMenu({ silent: true }), 180);
-}
-
-function showDemoBanner() {
-    if (document.getElementById('demo-banner')) return;
-    const banner = document.createElement('div');
-    banner.id = 'demo-banner';
-    banner.style.cssText = `
-        position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
-        background: #FFD600; color: #111; text-align: center;
-        padding: 6px; font-family: 'Archivo Black', sans-serif;
-        font-size: 0.75rem; border-bottom: 2px solid #111;
-        letter-spacing: 0.08em;
-    `;
-    banner.textContent = '⚡ MODO DEMO ACTIVO — para desactivarlo, usá el panel de admin';
-    document.body.prepend(banner);
+    window.setInterval(() => loadMenu({ silent: true }), 60000);
 }
 
 // 5. DATA LOADING & INVENTORY
@@ -355,50 +372,25 @@ async function loadMenu({ silent = false } = {}) {
     }
 
     try {
-        const [productsResult, categoriesResult, ingredientsResult, extraRulesResult] = await Promise.all([
-            supabaseClient.from('productos').select('*').eq('activo', true),
-            supabaseClient.from('categorias_productos').select('*').eq('activo', true).order('orden', { ascending: true }),
-            supabaseClient.from('insumos').select('id, nombre, stock_actual'),
-            supabaseClient.from('extras_inventario').select('nombre_extra, ingrediente_id, cantidad').eq('activo', true)
-        ]);
+        const { data, error } = await supabaseClient.rpc('listar_menu_publico');
+        if (error) throw error;
 
-        if (productsResult.error) throw productsResult.error;
-        if (ingredientsResult.error) throw ingredientsResult.error;
-
-        const rawProducts = productsResult.data || [];
-        ingredientInventory = (ingredientsResult.data || []).map(ingredient => ({
-            id: String(ingredient.id),
-            nombre: ingredient.nombre || '',
-            stock_actual: Math.max(0, Number(ingredient.stock_actual) || 0)
+        const rawProducts = Array.isArray(data?.products) ? data.products : [];
+        productCategories = (Array.isArray(data?.categories) ? data.categories : []).map(normalizeCategory);
+        extraInventoryRules = (Array.isArray(data?.extras) ? data.extras : []).map(rule => ({
+            normalizedName: normalizeSearchText(rule.nombre_extra),
+            name: rule.nombre_extra,
+            price: Math.max(0, Number(rule.precio) || 0),
+            maxQuantity: Math.max(0, Math.floor(Number(rule.max_quantity) || 0))
         }));
-        extraInventoryRules = extraRulesResult.error
-            ? Object.entries(LEGACY_EXTRA_INGREDIENT_RULES).map(([normalizedName, rule]) => ({ normalizedName, ...rule }))
-            : (extraRulesResult.data || []).map(rule => ({
-                normalizedName: normalizeSearchText(rule.nombre_extra),
-                ingredientId: String(rule.ingrediente_id),
-                quantity: Math.max(0, Number(rule.cantidad) || 0)
-            }));
-        if (extraRulesResult.error) {
-            console.warn('No se pudo cargar extras_inventario; se usa compatibilidad temporal.', extraRulesResult.error);
-        }
-
-        if (categoriesResult.error) {
-            console.warn('No se pudieron cargar categorias_productos; se usa compatibilidad temporal.', categoriesResult.error);
-            const foundSlugs = [...new Set(rawProducts.map(product => String(product.categoria || 'burgers').toLowerCase()))];
-            productCategories = foundSlugs.map((slug, index) => {
-                const legacy = LEGACY_CATEGORIES.find(category => category.slug === slug);
-                return normalizeCategory(legacy || {
-                    id: `legacy-${slug}`,
-                    slug,
-                    nombre: slug.replace(/[-_]+/g, ' '),
-                    tipo_venta: 'configurable',
-                    activo: true,
-                    orden: index + 10
-                });
-            }).sort((a, b) => a.orden - b.orden);
-        } else {
-            productCategories = (categoriesResult.data || []).map(normalizeCategory);
-        }
+        document.querySelectorAll('#product-modal .extra-item').forEach(item => {
+            const rule = findExtraRule(item.dataset.name);
+            item.hidden = !rule;
+            if (!rule) return;
+            item.dataset.price = String(rule.price);
+            const price = item.querySelector('.extra-item-copy span');
+            if (price) price.textContent = `+$${rule.price.toLocaleString('es-AR')} c/u`;
+        });
 
         menuData = rawProducts.map(product => {
             let imgUrl = product.imagen_url;
@@ -416,17 +408,16 @@ async function loadMenu({ silent = false } = {}) {
                 simple: Math.max(0, Number(product.precio_simple) || 0),
                 doble: Math.max(0, Number(product.precio_doble) || 0),
                 desc: product.descripcion || '',
-                img: imgUrl,
+                img: optimizedLocalImage(imgUrl),
                 destacado: Boolean(product.destacado),
-                directStock: Math.max(0, Math.floor(Number(product.stock) || 0)),
-                receta: product.receta || null,
+                directStock: Math.max(0, Math.floor(Number(product.max_simple) || 0)),
+                maxSimple: Math.max(0, Math.floor(Number(product.max_simple) || 0)),
+                maxDoble: Math.max(0, Math.floor(Number(product.max_doble) || 0)),
                 orden: Number.isFinite(Number(product.orden)) ? Number(product.orden) : 0
             };
         }).sort((a, b) => a.orden - b.orden || a.title.localeCompare(b.title, 'es'));
 
         menuData.forEach(product => {
-            product.maxSimple = getProductCapacity(product, 'Simple');
-            product.maxDoble = product.doble > 0 ? getProductCapacity(product, 'Doble') : 0;
             product.stock = isDirectProduct(product)
                 ? product.maxSimple
                 : Math.max(product.maxSimple, product.maxDoble);
@@ -446,96 +437,33 @@ async function loadMenu({ silent = false } = {}) {
     }
 }
 
-function getRecipeIngredients(product) {
-    return Array.isArray(product?.receta?.ingredientes) ? product.receta.ingredientes : [];
-}
-
-function findIngredientById(id) {
-    return ingredientInventory.find(ingredient => ingredient.id === String(id));
-}
-
 function findExtraRule(extraName) {
     return extraInventoryRules.find(rule => rule.normalizedName === normalizeSearchText(extraName)) || null;
 }
 
-function findExtraIngredient(extraName) {
-    const rule = findExtraRule(extraName);
-    if (!rule) return null;
-    if (rule.ingredientId) return findIngredientById(rule.ingredientId) || null;
-    return ingredientInventory.find(ingredient => {
-        const normalizedName = normalizeSearchText(ingredient.nombre);
-        return rule.search.some(term => normalizedName.includes(normalizeSearchText(term)));
-    }) || null;
-}
-
-function addRequirement(requirements, ingredientId, amount) {
-    const parsedAmount = Number(amount);
-    if (!ingredientId || !Number.isFinite(parsedAmount) || parsedAmount <= 0) return;
-    const key = String(ingredientId);
-    requirements[key] = (requirements[key] || 0) + parsedAmount;
-}
-
-function getUnitIngredientRequirements(product, type, extras = []) {
-    const requirements = {};
-    const missing = [];
-    const isDouble = normalizeSearchText(type) === 'doble';
-
-    for (const recipeItem of getRecipeIngredients(product)) {
-        const ingredient = findIngredientById(recipeItem.ingrediente_id);
-        const baseQuantity = Number(recipeItem.cantidad);
-        if (!ingredient || !Number.isFinite(baseQuantity) || baseQuantity <= 0) {
-            missing.push(recipeItem.nombre || 'un ingrediente de la receta');
-            continue;
-        }
-        const configuredMultiplier = Number(recipeItem.doble_mult);
-        const doubleMultiplier = Number.isFinite(configuredMultiplier) && configuredMultiplier > 0
-            ? configuredMultiplier
-            : 1;
-        addRequirement(requirements, ingredient.id, baseQuantity * (isDouble ? doubleMultiplier : 1));
-    }
-
-    for (const extra of extras || []) {
-        const name = typeof extra === 'string' ? extra : extra?.name;
-        const extraQty = typeof extra === 'string' ? 1 : Math.max(1, parseInt(extra?.qty) || 1);
-        const rule = findExtraRule(name);
-        if (!rule) {
-            missing.push(name || 'un extra');
-            continue;
-        }
-        const ingredient = findExtraIngredient(name);
-        if (!ingredient) {
-            missing.push(name || 'un extra');
-            continue;
-        }
-        addRequirement(requirements, ingredient.id, Number(rule.quantity) * extraQty);
-    }
-
-    return { requirements, missing };
-}
-
 function getProductCapacity(product, type = 'Simple', extras = []) {
     if (!product) return 0;
-    const hasRecipe = getRecipeIngredients(product).length > 0;
-    const { requirements, missing } = getUnitIngredientRequirements(product, type, extras);
-    if (missing.length) return 0;
-    if (hasRecipe && !Object.keys(requirements).length) return 0;
-
-    return Object.entries(requirements).reduce((capacity, [ingredientId, required]) => {
-        const stock = findIngredientById(ingredientId)?.stock_actual || 0;
-        return Math.min(capacity, Math.floor(stock / required));
-    }, hasRecipe ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.floor(Number(product.directStock) || 0)));
+    let capacity = normalizeSearchText(type) === 'doble' ? product.maxDoble : product.maxSimple;
+    for (const extra of extras || []) {
+        const name = typeof extra === 'string' ? extra : extra?.name;
+        const quantity = typeof extra === 'string' ? 1 : Math.max(1, parseInt(extra?.qty) || 1);
+        const rule = findExtraRule(name);
+        if (!rule) return 0;
+        capacity = Math.min(capacity, Math.floor(rule.maxQuantity / quantity));
+    }
+    return Math.max(0, Math.floor(Number(capacity) || 0));
 }
 
 function validateCartAvailability(items = cart) {
-    const ingredientRequirements = {};
-    const productRequirements = {};
+    const productRequirements = new Map();
+    const extraRequirements = new Map();
 
     for (const item of items) {
         const product = menuData.find(candidate => candidate.id === String(item.product_id));
         const qty = parseInt(item.qty);
         if (!product) return { valid: false, message: `${item.title || 'Un producto'} ya no está disponible.` };
         if (!getCategoryForProduct(product)) return { valid: false, message: `${product.title} pertenece a una categoría que ya no está disponible.` };
-        if (!Number.isInteger(qty) || qty <= 0 || qty > 100) return { valid: false, message: `La cantidad de ${product.title} no es válida.` };
+        if (!Number.isInteger(qty) || qty <= 0 || qty > 20) return { valid: false, message: `La cantidad de ${product.title} no es válida.` };
 
         const directSale = isDirectProduct(product);
         if (directSale) {
@@ -550,51 +478,97 @@ function validateCartAvailability(items = cart) {
             }
         }
 
-        const { requirements, missing } = getUnitIngredientRequirements(product, directSale ? 'Simple' : item.type, item.extras || []);
-        if (missing.length) {
-            return { valid: false, message: `${product.title} no está disponible porque falta ${missing[0]}.` };
+        const type = directSale ? 'Simple' : item.type;
+        const key = `${product.id}:${normalizeSearchText(type)}`;
+        const requiredProductQty = (productRequirements.get(key) || 0) + qty;
+        productRequirements.set(key, requiredProductQty);
+        if (requiredProductQty > getProductCapacity(product, type)) {
+            return { valid: false, message: `No hay stock suficiente de ${product.title}.` };
         }
-        for (const [ingredientId, amount] of Object.entries(requirements)) {
-            addRequirement(ingredientRequirements, ingredientId, amount * qty);
-        }
-        if (getRecipeIngredients(product).length === 0) {
-            productRequirements[product.id] = (productRequirements[product.id] || 0) + qty;
-        }
-    }
 
-    for (const [productId, required] of Object.entries(productRequirements)) {
-        const product = menuData.find(candidate => candidate.id === productId);
-        if (!product || required > product.directStock) {
-            return { valid: false, message: `No hay stock suficiente de ${product?.title || 'uno de los productos'}.` };
-        }
-    }
-
-    for (const [ingredientId, required] of Object.entries(ingredientRequirements)) {
-        const ingredient = findIngredientById(ingredientId);
-        if (!ingredient || required > ingredient.stock_actual + 1e-9) {
-            return { valid: false, message: `No hay insumos suficientes para preparar todo el pedido${ingredient?.nombre ? ` (${ingredient.nombre})` : ''}.` };
+        for (const extra of item.extras || []) {
+            const name = typeof extra === 'string' ? extra : extra?.name;
+            const extraQty = typeof extra === 'string' ? 1 : Math.max(1, parseInt(extra?.qty) || 1);
+            const rule = findExtraRule(name);
+            if (!rule) return { valid: false, message: `El extra ${name || ''} ya no está disponible.` };
+            const required = (extraRequirements.get(rule.normalizedName) || 0) + extraQty * qty;
+            extraRequirements.set(rule.normalizedName, required);
+            if (required > rule.maxQuantity) {
+                return { valid: false, message: `No hay stock suficiente de ${rule.name}.` };
+            }
         }
     }
 
     return { valid: true, message: '' };
 }
 
-async function validateCartAvailabilityOnServer(items = cart) {
-    if (!supabaseClient) return { valid: false, message: 'No se pudo conectar con el inventario.' };
-    const { data, error } = await supabaseClient.rpc('validar_stock_carrito', { p_items: items });
-    if (error) {
-        const migrationPending = error.code === 'PGRST202'
-            || /could not find.*validar_stock_carrito.*schema cache/i.test(error.message || '');
-        if (migrationPending) {
-            console.warn('Validación transaccional pendiente de migración; se usa la validación local.', error);
-            return { valid: true, legacyFallback: true };
-        }
-        console.error('Server inventory validation error:', error);
-        return { valid: false, message: 'No pudimos validar el stock en el servidor. Intentá nuevamente.' };
+function serializeCartForServer(items = cart) {
+    return items.map(item => ({
+        product_id: String(item.product_id),
+        type: normalizeSearchText(item.type),
+        qty: Math.max(1, parseInt(item.qty) || 1),
+        extras: (item.extras || []).map(extra => ({
+            name: typeof extra === 'string' ? extra : String(extra?.name || ''),
+            qty: typeof extra === 'string' ? 1 : Math.max(1, parseInt(extra?.qty) || 1)
+        }))
+    }));
+}
+
+function secureQuoteKey(couponCode = appliedCoupon?.codigo || '') {
+    return JSON.stringify({
+        items: serializeCartForServer(),
+        couponCode: String(couponCode || '').trim().toUpperCase(),
+        deliveryMethod: currentDeliveryMethod,
+        zone: currentDeliveryMethod === 'delivery' ? getSelectedZoneKey() : ''
+    });
+}
+
+function serverErrorMessage(error, fallback) {
+    const message = String(error?.message || '').replace(/^.*?error:\s*/i, '').trim();
+    if (error?.code === 'PGRST202' || /schema cache|crear_pedido_seguro|cotizar_pedido_seguro/i.test(message)) {
+        return 'La tienda está en mantenimiento. Falta aplicar la migración de seguridad en Supabase.';
     }
-    return data?.ok
-        ? { valid: true }
-        : { valid: false, message: data?.error || 'Uno de los productos ya no tiene stock suficiente.' };
+    return message && message.length <= 240 ? message : fallback;
+}
+
+async function requestSecureQuote(couponCode = appliedCoupon?.codigo || '') {
+    if (!supabaseClient) throw new Error('No se pudo conectar con la tienda.');
+    const key = secureQuoteKey(couponCode);
+    const { data, error } = await supabaseClient.rpc('cotizar_pedido_seguro', {
+        p_items: serializeCartForServer(),
+        p_codigo_cupon: String(couponCode || '').trim() || null,
+        p_metodo_entrega: currentDeliveryMethod,
+        p_zona: currentDeliveryMethod === 'delivery' ? getSelectedZoneKey() : null
+    });
+    if (error) throw new Error(serverErrorMessage(error, 'No pudimos validar el pedido. Intentá nuevamente.'));
+    return { ...data, _key: key };
+}
+
+async function validateCartAvailabilityOnServer(items = cart) {
+    if (items !== cart) {
+        return { valid: false, message: 'No se pudo validar una versión anterior del carrito.' };
+    }
+    try {
+        const quote = await requestSecureQuote();
+        return { valid: true, quote };
+    } catch (error) {
+        console.error('Server quote error:', error);
+        return { valid: false, message: error.message };
+    }
+}
+
+function createOperationId() {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function invalidateCheckoutState() {
+    currentSecureQuote = null;
+    pendingOrderAttempt = null;
 }
 
 function copyCart() {
@@ -607,7 +581,7 @@ function maxAddableQuantity(product, type, extras = []) {
     if (absoluteCapacity <= 0) return 0;
 
     let low = 0;
-    let high = Math.min(absoluteCapacity, 100);
+    let high = Math.min(absoluteCapacity, 20);
     while (low < high) {
         const middle = Math.ceil((low + high) / 2);
         const candidate = copyCart();
@@ -652,6 +626,7 @@ window.addExtraToCart = productId => {
     }
 
     cart = candidate;
+    invalidateCheckoutState();
     updateOrderBar();
     const btn = [...document.querySelectorAll('.extra-add-btn')]
         .find(candidateButton => candidateButton.dataset.productId === product.id);
@@ -667,16 +642,6 @@ window.addExtraToCart = productId => {
     }
 };
 
-async function loadActivePromos() {
-    if (!supabaseClient) return;
-    try {
-        const { data, error } = await supabaseClient.from('promociones').select('*').eq('activo', true);
-        if (error) throw error;
-        activePromos = data;
-        console.log("Promos activas cargadas:", activePromos.length);
-    } catch (e) { console.error("Error loading promos:", e); }
-}
-
 // =============================================
 // AUTH ENGINE
 // =============================================
@@ -685,7 +650,11 @@ async function initAuth() {
     if (session) { currentUser = session.user; await onAuthSuccess(session.user, false); }
 
     supabaseClient.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_IN' && session) {
+        if (event === 'PASSWORD_RECOVERY' && session) {
+            currentUser = session.user;
+            updateAuthUI(session.user);
+            openPasswordRecoveryPanel();
+        } else if (event === 'SIGNED_IN' && session) {
             currentUser = session.user;
             await onAuthSuccess(session.user, true);
         } else if (event === 'SIGNED_OUT') {
@@ -698,23 +667,14 @@ async function initAuth() {
 async function onAuthSuccess(user, fromLogin) {
     updateAuthUI(user);
 
-    let { data: cliente } = await supabaseClient.from('clientes').select('*').eq('user_id', user.id).maybeSingle();
-
-    if (!cliente) {
-        let { data: byEmail } = await supabaseClient.from('clientes').select('*').eq('email', user.email).maybeSingle();
-        if (byEmail) {
-            await supabaseClient.from('clientes').update({ user_id: user.id }).eq('id', byEmail.id);
-            cliente = byEmail;
-        }
-    }
-
-    if (cliente) {
-        const fill = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
-        fill('cust-name', cliente.nombre);
-        fill('cust-phone', cliente.whatsapp);
-        fill('cust-email', cliente.email);
-        fill('cust-address', cliente.direccion);
-        fill('cust-doorbell', cliente.timbre);
+    const { data: cliente, error } = await supabaseClient.rpc('sincronizar_cliente_actual', {
+        p_nombre: user.user_metadata?.nombre || null,
+        p_whatsapp: user.user_metadata?.whatsapp || null
+    });
+    if (error) {
+        console.error('Profile sync error:', error);
+    } else if (cliente) {
+        fillCheckoutProfile(cliente, false);
     }
 
     if (fromLogin) {
@@ -764,6 +724,11 @@ window.closeAuthModal = () => {
     const modal = document.getElementById('auth-modal');
     modal.classList.remove('active');
     setTimeout(() => { modal.style.display = 'none'; }, 350);
+    const tabs = document.querySelector('.auth-tabs');
+    if (tabs) tabs.style.display = '';
+    switchAuthTab('login');
+    const subtitle = document.getElementById('auth-subtitle');
+    if (subtitle) subtitle.textContent = 'Ingresá o creá tu cuenta';
     pendingAfterAuth = null;
 };
 
@@ -771,7 +736,18 @@ window.switchAuthTab = (tab) => {
     document.querySelectorAll('.auth-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
     document.getElementById('auth-panel-login').style.display = tab === 'login' ? 'block' : 'none';
     document.getElementById('auth-panel-register').style.display = tab === 'register' ? 'block' : 'none';
+    const recoveryPanel = document.getElementById('auth-panel-recovery');
+    if (recoveryPanel) recoveryPanel.style.display = tab === 'recovery' ? 'block' : 'none';
 };
+
+function openPasswordRecoveryPanel() {
+    openAuthModal();
+    switchAuthTab('recovery');
+    const tabs = document.querySelector('.auth-tabs');
+    if (tabs) tabs.style.display = 'none';
+    const subtitle = document.getElementById('auth-subtitle');
+    if (subtitle) subtitle.textContent = 'Elegí una contraseña nueva para tu cuenta';
+}
 
 function setAuthError(elId, msg, isSuccess = false) {
     const el = document.getElementById(elId);
@@ -828,34 +804,20 @@ window.doRegister = async () => {
     if (pass.length < 6) { setAuthError('auth-error-register', 'La contraseña debe tener al menos 6 caracteres.'); return; }
 
     const btn = document.querySelector('#auth-panel-register .auth-submit-btn');
-    btn.textContent = 'VERIFICANDO...'; btn.disabled = true;
-
-    const { data: byPhone } = await supabaseClient.from('clientes').select('id').eq('whatsapp', whatsapp).maybeSingle();
-    if (byPhone) {
-        setAuthError('auth-error-register', 'Ese WhatsApp ya está registrado. Usá "Ingresar".');
-        btn.textContent = 'CREAR CUENTA'; btn.disabled = false;
-        return;
-    }
-    const { data: byEmail } = await supabaseClient.from('clientes').select('id').eq('email', email).maybeSingle();
-    if (byEmail) {
-        setAuthError('auth-error-register', 'Ese email ya está registrado. Usá "Ingresar".');
-        btn.textContent = 'CREAR CUENTA'; btn.disabled = false;
-        return;
-    }
-
-    btn.textContent = 'CREANDO CUENTA...';
-    const { data, error } = await supabaseClient.auth.signUp({ email, password: pass, options: { data: { nombre } } });
+    btn.textContent = 'CREANDO CUENTA...'; btn.disabled = true;
+    const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password: pass,
+        options: { data: { nombre, whatsapp } }
+    });
     btn.textContent = 'CREAR CUENTA'; btn.disabled = false;
 
     if (error) { setAuthError('auth-error-register', translateAuthError(error)); return; }
 
-    if (data.user) {
-        const { data: existing } = await supabaseClient.from('clientes').select('id').eq('email', email).maybeSingle();
-        if (existing) {
-            await supabaseClient.from('clientes').update({ user_id: data.user.id, nombre, whatsapp }).eq('id', existing.id);
-        } else {
-            await supabaseClient.from('clientes').insert({ user_id: data.user.id, nombre, whatsapp, email, pedidos_count: 0, total_gastado: 0 });
-        }
+    if (data.session && data.user) {
+        await onAuthSuccess(data.user, true);
+    } else {
+        setAuthError('auth-error-register', 'Revisá tu email para confirmar la cuenta. Después vas a poder ingresar.', true);
     }
 };
 
@@ -864,28 +826,36 @@ window.doForgotPassword = async () => {
     const errEl = document.getElementById('auth-error-login');
     if (!email) { setAuthError('auth-error-login', 'Ingresá tu email primero.'); return; }
     if (!validateEmail(email)) { setAuthError('auth-error-login', 'El email no es válido.'); return; }
-    const { error } = await supabaseClient.auth.resetPasswordForEmail(email);
+    const redirectUrl = `${window.location.origin}${window.location.pathname}?password-recovery=1`;
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl });
     if (error) { setAuthError('auth-error-login', translateAuthError(error)); return; }
     setAuthError('auth-error-login', 'Te enviamos un email para restablecer tu contraseña.', true);
 };
 
-async function updateClienteStats(orderTotal, clientId) {
-    let cliente = null;
-    if (clientId) {
-        const { data } = await supabaseClient.from('clientes').select('id, pedidos_count, total_gastado').eq('id', clientId).maybeSingle();
-        cliente = data;
-    } else if (currentUser) {
-        const { data } = await supabaseClient.from('clientes').select('id, pedidos_count, total_gastado').eq('user_id', currentUser.id).maybeSingle();
-        cliente = data;
+window.doUpdatePassword = async () => {
+    const password = document.getElementById('recovery-pass')?.value || '';
+    const confirmation = document.getElementById('recovery-pass-confirm')?.value || '';
+    setAuthError('auth-error-recovery', '');
+    if (password.length < 8) {
+        setAuthError('auth-error-recovery', 'La contraseña debe tener al menos 8 caracteres.');
+        return;
     }
-    if (cliente) {
-        await supabaseClient.from('clientes').update({
-            pedidos_count: (cliente.pedidos_count || 0) + 1,
-            total_gastado: (cliente.total_gastado || 0) + orderTotal,
-            ultima_compra: new Date().toISOString()
-        }).eq('id', cliente.id);
+    if (password !== confirmation) {
+        setAuthError('auth-error-recovery', 'Las contraseñas no coinciden.');
+        return;
     }
-}
+    const button = document.querySelector('#auth-panel-recovery .auth-submit-btn');
+    if (button) { button.disabled = true; button.textContent = 'ACTUALIZANDO...'; }
+    const { error } = await supabaseClient.auth.updateUser({ password });
+    if (button) { button.disabled = false; button.textContent = 'GUARDAR CONTRASEÑA'; }
+    if (error) {
+        setAuthError('auth-error-recovery', translateAuthError(error));
+        return;
+    }
+    window.history.replaceState({}, document.title, window.location.pathname);
+    closeAuthModal();
+    showAlert('CONTRASEÑA ACTUALIZADA', 'Tu nueva contraseña ya está activa.');
+};
 
 function initScrollButtons() {
     const fab = document.getElementById('fab-menu');
@@ -955,7 +925,7 @@ function renderConfigurableCard(product, storeClosed) {
     const icon = soldOut ? 'x' : storeClosed ? 'clock' : 'plus';
     const disabledStyle = disabled ? 'style="background:#888; border-color:#888; cursor:not-allowed;"' : '';
     return `
-        <article class="menu-item ${disabled ? 'closed-item' : ''}" ${disabled ? 'aria-disabled="true"' : `onclick="openProductModal('${product.id}')"`}>
+        <article class="menu-item ${disabled ? 'closed-item' : ''}" ${disabled ? 'aria-disabled="true"' : ''}>
             ${product.destacado ? '<div class="badge-destacado">🔥 MÁS PEDIDO</div>' : ''}
             ${soldOut ? '<div class="badge-destacado sold-out-badge">AGOTADO</div>' : ''}
             <div class="item-img">
@@ -965,7 +935,7 @@ function renderConfigurableCard(product, storeClosed) {
             <div class="item-content">
                 <h3>${escapeHtml(product.title)}</h3>
                 <p class="item-desc">${escapeHtml(product.desc)}</p>
-                <button type="button" class="add-btn" ${disabled ? 'disabled' : ''} ${disabledStyle}>
+                <button type="button" class="add-btn" ${disabled ? 'disabled' : `onclick="openProductModal('${product.id}')"`} ${disabledStyle}>
                     <i data-lucide="${icon}"></i> ${label}
                 </button>
             </div>
@@ -979,7 +949,7 @@ function renderFeaturedCard(product, storeClosed) {
     const icon = soldOut ? 'x' : storeClosed ? 'clock' : 'plus';
     const disabledStyle = disabled ? 'style="background:#888; border-color:#888; cursor:not-allowed;"' : '';
     return `
-        <article class="menu-item-featured ${disabled ? 'closed-item' : ''}" ${disabled ? 'aria-disabled="true"' : `onclick="openProductModal('${product.id}')"`}>
+        <article class="menu-item-featured ${disabled ? 'closed-item' : ''}" ${disabled ? 'aria-disabled="true"' : ''}>
             ${soldOut ? '<div class="badge-destacado sold-out-badge">AGOTADO</div>' : ''}
             <div class="featured-img">
                 <img src="${escapeHtml(product.img)}" alt="${escapeHtml(product.title)}" loading="lazy">
@@ -992,7 +962,7 @@ function renderFeaturedCard(product, storeClosed) {
                     <span>Simple $${product.simple.toLocaleString('es-AR')}</span>
                     ${product.doble > 0 ? `<span>Doble $${product.doble.toLocaleString('es-AR')}</span>` : ''}
                 </div>
-                <button type="button" class="add-btn-featured" ${disabled ? 'disabled' : ''} ${disabledStyle}>
+                <button type="button" class="add-btn-featured" ${disabled ? 'disabled' : `onclick="openProductModal('${product.id}')"`} ${disabledStyle}>
                     <i data-lucide="${icon}"></i> ${label}
                 </button>
             </div>
@@ -1182,6 +1152,7 @@ function initListeners() {
             }
 
             cart = candidate;
+            invalidateCheckoutState();
 
             console.log("Cart updated:", cart);
             document.getElementById('product-modal').classList.remove('active');
@@ -1207,12 +1178,12 @@ function showUpsellModal() {
             </div>
             <div class="upsell-nugget-action">
                 <div id="upsell-zero-${p.id}">
-                    <button class="upsell-add-btn" onclick="changeNuggetQty('${p.id}', 1)">+ AGREGAR</button>
+                    <button class="upsell-add-btn" type="button" onclick="changeNuggetQty('${p.id}', 1)">+ AGREGAR</button>
                 </div>
                 <div id="upsell-active-${p.id}" style="display:none; align-items:center; gap:10px;">
-                    <button class="upsell-qty-btn" onclick="changeNuggetQty('${p.id}', -1)">−</button>
+                    <button class="upsell-qty-btn" type="button" aria-label="Quitar ${escapeHtml(p.title)}" onclick="changeNuggetQty('${p.id}', -1)">−</button>
                     <span class="upsell-qty-val" id="upsell-qty-val-${p.id}">0</span>
-                    <button class="upsell-qty-btn" onclick="changeNuggetQty('${p.id}', 1)">+</button>
+                    <button class="upsell-qty-btn" type="button" aria-label="Agregar ${escapeHtml(p.title)}" onclick="changeNuggetQty('${p.id}', 1)">+</button>
                 </div>
             </div>
         </div>
@@ -1287,6 +1258,7 @@ window.proceedFromUpsell = () => {
         return;
     }
     cart = candidate;
+    invalidateCheckoutState();
     upsellQtys = {};
     updateOrderBar();
     const modal = document.getElementById('upsell-modal');
@@ -1459,14 +1431,14 @@ function renderCartItems() {
                     <h4>${escapeHtml(item.title)}</h4>
                     <span>${escapeHtml(item.type)}${(item.extras || []).length ? ' + ' + escapeHtml(formatExtras(item.extras).join(', ')) : ''}</span>
                     <div class="cart-qty-controls">
-                        <button onclick="updateCartQty(${idx}, -1)"><i data-lucide="minus"></i></button>
+                        <button type="button" aria-label="Quitar una unidad de ${escapeHtml(item.title)}" onclick="updateCartQty(${idx}, -1)"><i data-lucide="minus"></i></button>
                         <span>${item.qty}</span>
-                        <button onclick="updateCartQty(${idx}, 1)"><i data-lucide="plus"></i></button>
+                        <button type="button" aria-label="Agregar una unidad de ${escapeHtml(item.title)}" onclick="updateCartQty(${idx}, 1)"><i data-lucide="plus"></i></button>
                     </div>
                 </div>
                 <div class="cart-item-actions">
                     <div class="cart-item-price">$${item.total.toLocaleString()}</div>
-                    <button class="remove-item-btn" onclick="removeFromCart(${idx})"><i data-lucide="trash-2"></i></button>
+                    <button class="remove-item-btn" type="button" aria-label="Eliminar ${escapeHtml(item.title)} del carrito" onclick="removeFromCart(${idx})"><i data-lucide="trash-2"></i></button>
                 </div>
             </div>
         `).join('');
@@ -1492,20 +1464,33 @@ function renderUpsell() {
         : menuData.filter(p => !isDirectProduct(p) && p.stock > 0).slice(0, 3);
 
     upsellGrid.innerHTML = finalSug.map(p => `
-        <div class="upsell-item" onclick="toggleCartModal(); openProductModal('${p.id}')">
+        <button type="button" class="upsell-item" onclick="toggleCartModal(); openProductModal('${p.id}')">
             <img src="${escapeHtml(p.img)}" alt="${escapeHtml(p.title)}">
             <h5>${escapeHtml(p.title)}</h5>
             <p>$${p.simple.toLocaleString()}</p>
-        </div>
+        </button>
     `).join('');
 }
 
 window.clearCart = () => {
     if (!cart.length) return;
-    if (confirm('¿Vaciar el carrito?')) { cart = []; appliedCoupon = null; renderCartItems(); updateOrderBar(); }
+    if (confirm('¿Vaciar el carrito?')) {
+        cart = [];
+        appliedCoupon = null;
+        currentSecureQuote = null;
+        pendingOrderAttempt = null;
+        renderCartItems();
+        updateOrderBar();
+    }
 };
 
-window.removeFromCart = (idx) => { cart.splice(idx, 1); renderCartItems(); updateOrderBar(); };
+window.removeFromCart = (idx) => {
+    cart.splice(idx, 1);
+    currentSecureQuote = null;
+    pendingOrderAttempt = null;
+    renderCartItems();
+    updateOrderBar();
+};
 window.updateCartQty = (idx, chg) => {
     if (!cart[idx]) return;
     const candidate = copyCart();
@@ -1517,96 +1502,69 @@ window.updateCartQty = (idx, chg) => {
         return;
     }
     cart = candidate;
+    currentSecureQuote = null;
+    pendingOrderAttempt = null;
     renderCartItems(); updateOrderBar();
 };
 
 // 8. MARKETING & CHECKOUT ENGINE
 window.applyCoupon = async function () {
-    const code = document.getElementById('coupon-input').value.toUpperCase();
+    const code = document.getElementById('coupon-input').value.trim().toUpperCase();
     const msg = document.getElementById('coupon-message');
+    const button = document.getElementById('apply-coupon-btn');
     if (!code) return;
 
+    button.disabled = true;
+    button.innerText = 'VALIDANDO...';
     try {
-        const { data, error } = await supabaseClient.from('cupones').select('*').eq('codigo', code).eq('activo', true).single();
-        if (error || !data) throw new Error("Cupón inválido");
-        if (data.usos_actuales >= data.limite_usos) throw new Error("Cupón agotado");
-
-        appliedCoupon = data;
+        const quote = await requestSecureQuote(code);
+        currentSecureQuote = quote;
+        appliedCoupon = { codigo: quote.couponCode };
+        pendingOrderAttempt = null;
         msg.innerText = "¡Cupón aplicado!";
         msg.className = "coupon-msg success";
-        document.getElementById('apply-coupon-btn').innerText = "QUITAR";
-        document.getElementById('apply-coupon-btn').onclick = removeCoupon;
-        openCheckoutModal(); // Refresh prices
+        button.innerText = "QUITAR";
+        button.onclick = removeCoupon;
+        updateCheckoutPrices(quote);
     } catch (e) {
         msg.innerText = e.message;
         msg.className = "coupon-msg error";
         appliedCoupon = null;
-        openCheckoutModal();
+        currentSecureQuote = null;
+        button.innerText = 'APLICAR';
+        button.onclick = applyCoupon;
+        updateCheckoutPrices();
+    } finally {
+        button.disabled = false;
     }
 };
 
-window.removeCoupon = function () {
+window.removeCoupon = async function () {
     appliedCoupon = null;
+    currentSecureQuote = null;
+    pendingOrderAttempt = null;
     document.getElementById('coupon-input').value = "";
     document.getElementById('coupon-message').innerText = "";
     document.getElementById('apply-coupon-btn').innerText = "APLICAR";
     document.getElementById('apply-coupon-btn').onclick = applyCoupon;
-    openCheckoutModal();
+    await refreshSecureQuote();
 };
 
-function calculateCartMarketing() {
-    let subtotal = cart.reduce((acc, i) => acc + i.total, 0);
-    let discount = 0;
-    let appliedPromoId = null;
-
-    // Cupón y promos no son acumulables: si hay cupón activo, se ignoran las promos automáticas
-    if (appliedCoupon) {
-        let c = appliedCoupon;
-        if (c.tipo === 'percent') discount = subtotal * (c.valor / 100);
-        if (c.tipo === 'fixed') discount = c.valor;
-        if (c.tipo === 'multi_buy') {
-            cart.forEach(item => {
-                if (item.qty >= c.buy_qty) {
-                    let sets = Math.floor(item.qty / c.buy_qty);
-                    discount += (c.buy_qty - c.get_qty) * item.pricePerUnit * sets;
-                }
-            });
-        }
-        if (c.tipo === 'second_unit') {
-            cart.forEach(item => {
-                if (item.qty >= 2) {
-                    let pairs = Math.floor(item.qty / 2);
-                    discount += (item.pricePerUnit * (c.second_unit_percent / 100)) * pairs;
-                }
-            });
-        }
-    } else {
-        // Sin cupón: aplicar promos automáticas
-        activePromos.forEach(p => {
-            if (p.solo_registrados && !currentUser) return; // promo exclusiva para registrados
-            if (p.tipo === 'percent') discount += subtotal * (p.valor / 100);
-            if (p.tipo === 'fixed') discount += p.valor;
-            if (p.tipo === 'multi_buy') {
-                cart.forEach(item => {
-                    if (item.qty >= p.buy_qty) {
-                        let sets = Math.floor(item.qty / p.buy_qty);
-                        discount += (p.buy_qty - p.get_qty) * item.pricePerUnit * sets;
-                    }
-                });
-            }
-            if (p.tipo === 'second_unit') {
-                cart.forEach(item => {
-                    if (item.qty >= 2) {
-                        let pairs = Math.floor(item.qty / 2);
-                        discount += (item.pricePerUnit * (p.second_unit_percent / 100)) * pairs;
-                    }
-                });
-            }
-            if (discount > 0) appliedPromoId = p.id;
-        });
+async function refreshSecureQuote({ showError = false } = {}) {
+    const requestId = ++secureQuoteRequestId;
+    try {
+        const quote = await requestSecureQuote();
+        if (requestId !== secureQuoteRequestId) return null;
+        currentSecureQuote = quote;
+        updateCheckoutPrices(quote);
+        return quote;
+    } catch (error) {
+        if (requestId !== secureQuoteRequestId) return null;
+        currentSecureQuote = null;
+        updateCheckoutPrices();
+        if (showError) showAlert('NO PUDIMOS VALIDAR EL PEDIDO', error.message);
+        return null;
     }
-
-    return { discount: Math.min(discount, subtotal), promoId: appliedPromoId };
 }
 
 window.selectPay = function(method) {
@@ -1644,18 +1602,47 @@ function isDeliverySlotEnabled() {
 }
 
 function buildDeliverySlots() {
-    const now = new Date();
-    const earliest = new Date(now.getTime() + DELIVERY_PREP_MINUTES * 60 * 1000);
-    const dayStart = new Date(now);
-    dayStart.setHours(0, 0, 0, 0);
+    if (!storeHoursConfig) return [];
+    const nowInstant = new Date();
+    const earliest = new Date(nowInstant.getTime() + DELIVERY_PREP_MINUTES * 60 * 1000);
+    const now = getZonedDateParts(nowInstant);
+    const [openHour, openMinute] = (storeHoursConfig.hora_apertura || '18:00').split(':').map(Number);
+    const [closeHour, closeMinute] = (storeHoursConfig.hora_cierre || '00:00').split(':').map(Number);
+    const openMinutes = openHour * 60 + openMinute;
+    const rawCloseMinutes = closeHour * 60 + closeMinute;
+    const isOvernight = rawCloseMinutes <= openMinutes;
+    const closeMinutes = rawCloseMinutes + (isOvernight ? 24 * 60 : 0);
+    const days = (storeHoursConfig.dias || []).map(Number);
     const slots = [];
 
-    for (let minutes = 19 * 60 + 30; minutes <= 24 * 60; minutes += DELIVERY_SLOT_MINUTES) {
-        const slot = new Date(dayStart.getTime() + minutes * 60 * 1000);
+    let serviceDate = new Date(Date.UTC(now.year, now.month - 1, now.day));
+    let serviceWeekday = now.weekday;
+    const currentMinutes = now.hour * 60 + now.minute;
+    if (isOvernight && rawCloseMinutes > 0 && currentMinutes < rawCloseMinutes) {
+        serviceDate = new Date(Date.UTC(now.year, now.month - 1, now.day - 1));
+        serviceWeekday = (now.weekday + 6) % 7;
+    }
+
+    if (!days.includes(serviceWeekday)) return slots;
+    const firstSlot = Math.ceil(openMinutes / DELIVERY_SLOT_MINUTES) * DELIVERY_SLOT_MINUTES;
+    for (let minutes = firstSlot; minutes <= closeMinutes; minutes += DELIVERY_SLOT_MINUTES) {
+        const dateOffset = Math.floor(minutes / (24 * 60));
+        const localDate = new Date(Date.UTC(
+            serviceDate.getUTCFullYear(),
+            serviceDate.getUTCMonth(),
+            serviceDate.getUTCDate() + dateOffset
+        ));
+        const localHour = Math.floor((minutes % (24 * 60)) / 60);
+        const localMinute = minutes % 60;
+        const slot = zonedLocalToInstant(
+            localDate.getUTCFullYear(),
+            localDate.getUTCMonth() + 1,
+            localDate.getUTCDate(),
+            localHour,
+            localMinute
+        );
         if (slot.getTime() < earliest.getTime()) continue;
-        const label = minutes === 24 * 60
-            ? '00:00'
-            : `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+        const label = `${String(localHour).padStart(2, '0')}:${String(localMinute).padStart(2, '0')}`;
         slots.push({ label, value: slot.toISOString() });
     }
 
@@ -1711,15 +1698,6 @@ function fillCheckoutProfile(profile, onlyEmpty = true) {
     });
 }
 
-function restoreGuestCheckoutProfile() {
-    if (currentUser) return;
-    fillCheckoutProfile(readStoredJson(GUEST_PROFILE_KEY));
-}
-
-function saveGuestCheckoutProfile(profile) {
-    if (!currentUser) writeStoredJson(GUEST_PROFILE_KEY, profile);
-}
-
 function getLastOrderReceipt() {
     return readStoredJson(LAST_ORDER_KEY);
 }
@@ -1734,7 +1712,12 @@ function formatReceiptTime(isoValue) {
     if (!isoValue) return 'A coordinar';
     const date = new Date(isoValue);
     if (Number.isNaN(date.getTime())) return 'A coordinar';
-    return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString('es-AR', {
+        timeZone: STORE_TIME_ZONE,
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23'
+    });
 }
 
 function paymentLabel(method) {
@@ -1849,7 +1832,6 @@ window.openCheckoutModal = async function () {
         renderCartItems();
         return;
     }
-    restoreGuestCheckoutProfile();
     // Reset payment selection
     selectedPayMethod = null;
     document.querySelectorAll('.pay-select-btn').forEach(b => b.classList.remove('active'));
@@ -1865,13 +1847,18 @@ window.openCheckoutModal = async function () {
     modal.style.display = 'flex';
     setTimeout(() => modal.classList.add('active'), 10);
     if (typeof lucide !== 'undefined') lucide.createIcons();
+    await refreshSecureQuote({ showError: true });
 };
 
-window.updateCheckoutPrices = function () {
+window.updateCheckoutPrices = function (quote = null) {
     updateDeliveryTimeOptions();
+    const validQuote = quote?._key === secureQuoteKey()
+        ? quote
+        : (currentSecureQuote?._key === secureQuoteKey() ? currentSecureQuote : null);
+    const displayItems = Array.isArray(validQuote?.items) ? validQuote.items : cart;
     const itemsList = document.getElementById('checkout-items-list');
     if (itemsList) {
-        itemsList.innerHTML = cart.map(item => {
+        itemsList.innerHTML = displayItems.map(item => {
             const detail = [item.type, ...formatExtras(item.extras)].filter(Boolean).join(' + ');
             return `
             <div class="checkout-item-row">
@@ -1879,37 +1866,32 @@ window.updateCheckoutPrices = function () {
                     <span class="checkout-item-qty">${item.qty}×</span>
                     <span>${escapeHtml(item.title)}${detail ? `<br><small>${escapeHtml(detail)}</small>` : ''}</span>
                 </div>
-                <span class="checkout-item-price">$${item.total.toLocaleString()}</span>
+                <span class="checkout-item-price">$${Number(item.total || 0).toLocaleString('es-AR')}</span>
             </div>`;
         }).join('');
     }
 
-    let subtotal = cart.reduce((acc, i) => acc + i.total, 0);
-    let { discount, promoId } = calculateCartMarketing();
+    const subtotal = validQuote
+        ? Number(validQuote.subtotal || 0)
+        : cart.reduce((acc, item) => acc + Number(item.total || 0), 0);
+    const discount = validQuote ? Number(validQuote.discount || 0) : 0;
+    const shipping = validQuote ? Number(validQuote.shipping || 0) : 0;
+    const total = validQuote ? Number(validQuote.total || 0) : subtotal;
 
-    // Shipping Calculation
-    let shipping = 0;
-    if (currentDeliveryMethod === 'delivery') {
-        const zoneSelect = document.getElementById('shipping-zone');
-        shipping = zoneSelect ? parseInt(zoneSelect.value) : 0;
-    }
-
-    let total = subtotal - discount + shipping;
-
-    document.getElementById('summary-subtotal').innerText = `$${subtotal.toLocaleString()}`;
+    document.getElementById('summary-subtotal').innerText = `$${subtotal.toLocaleString('es-AR')}`;
     const discRow = document.getElementById('discount-row');
     if (discount > 0) {
         discRow.style.display = 'flex';
-        document.getElementById('summary-discount').innerText = `-$${discount.toLocaleString()}`;
+        document.getElementById('summary-discount').innerText = `-$${discount.toLocaleString('es-AR')}`;
     } else discRow.style.display = 'none';
 
     const shipEl = document.getElementById('summary-shipping');
     if (shipEl) {
-        shipEl.innerText = shipping === 0 ? "GRATIS" : `$${shipping.toLocaleString()}`;
+        shipEl.innerText = shipping === 0 ? "GRATIS" : `$${shipping.toLocaleString('es-AR')}`;
         shipEl.className = shipping === 0 ? "free" : "";
     }
 
-    document.getElementById('summary-total').innerText = `$${total.toLocaleString()}`;
+    document.getElementById('summary-total').innerText = `$${total.toLocaleString('es-AR')}`;
 };
 
 window.openCoverageModal = () => {
@@ -1952,24 +1934,15 @@ function resetOrderFlowUI() {
     if (applyBtn) { applyBtn.innerText = 'APLICAR'; applyBtn.onclick = window.applyCoupon; }
 }
 
-// Auto-fill seguro para invitados: solo usa datos guardados en este dispositivo.
 document.addEventListener('DOMContentLoaded', () => {
-    const phoneInput = document.getElementById('cust-phone');
-    if (phoneInput) {
-        phoneInput.addEventListener('blur', () => {
-            const storedProfile = readStoredJson(GUEST_PROFILE_KEY);
-            if (!storedProfile || normalizePhone(storedProfile.whatsapp) !== normalizePhone(phoneInput.value)) return;
-            fillCheckoutProfile(storedProfile);
-            phoneInput.style.borderColor = "#2E7D32";
-            setTimeout(() => {
-                phoneInput.style.borderColor = "";
-            }, 2000);
-        });
-    }
-
     const zoneSelect = document.getElementById('shipping-zone');
     if (zoneSelect) {
-        zoneSelect.addEventListener('change', updateDeliveryTimeOptions);
+        zoneSelect.addEventListener('change', () => {
+            currentSecureQuote = null;
+            pendingOrderAttempt = null;
+            updateDeliveryTimeOptions();
+            refreshSecureQuote();
+        });
     }
     const deliveryTime = document.getElementById('delivery-time');
     if (deliveryTime) {
@@ -1989,19 +1962,21 @@ document.querySelectorAll('.method-pill').forEach(pill => {
         document.querySelectorAll('.method-pill').forEach(p => p.classList.remove('active'));
         pill.classList.add('active');
         currentDeliveryMethod = pill.dataset.method;
+        currentSecureQuote = null;
+        pendingOrderAttempt = null;
         document.getElementById('address-section').style.display = (currentDeliveryMethod === 'pickup') ? 'none' : 'block';
         updateDeliveryTimeOptions();
         updateCheckoutPrices();
+        refreshSecureQuote();
     };
 });
 
 // Final Checkout
-window.submitOrder = async function() {
+window.submitOrder = async function () {
     if (!selectedPayMethod) return;
     const form = document.getElementById('checkout-form');
     if (form && !form.checkValidity()) { form.reportValidity(); return; }
 
-    // Delivery requiere dirección
     if (currentDeliveryMethod === 'delivery') {
         const addr = document.getElementById('cust-address')?.value?.trim() || '';
         if (!addr) {
@@ -2015,182 +1990,69 @@ window.submitOrder = async function() {
     }
 
     const finalizarBtn = document.getElementById('finalizar-btn');
-    if (finalizarBtn) { finalizarBtn.disabled = true; finalizarBtn.innerHTML = '<span class="loading-spinner"></span> PROCESANDO...'; }
-    const refreshed = await loadMenu({ silent: true });
-    const availability = refreshed ? validateCartAvailability(cart) : { valid: false, message: 'No pudimos verificar el stock. Revisá tu conexión.' };
-    if (!availability.valid) {
-        showAlert('REVISÁ TU PEDIDO', availability.message);
-        if (finalizarBtn) {
-            finalizarBtn.disabled = false;
-            finalizarBtn.innerHTML = '<i data-lucide="check-circle"></i> FINALIZAR PEDIDO';
-            if (typeof lucide !== 'undefined') lucide.createIcons();
-        }
-        return;
+    if (finalizarBtn) {
+        finalizarBtn.disabled = true;
+        finalizarBtn.innerHTML = '<span class="loading-spinner"></span> PROCESANDO...';
     }
-    const serverAvailability = await validateCartAvailabilityOnServer(cart);
-    if (!serverAvailability.valid) {
-        showAlert('REVISÁ TU PEDIDO', serverAvailability.message);
-        if (finalizarBtn) {
-            finalizarBtn.disabled = false;
-            finalizarBtn.innerHTML = '<i data-lucide="check-circle"></i> FINALIZAR PEDIDO';
-            if (typeof lucide !== 'undefined') lucide.createIcons();
-        }
-        return;
-    }
-    const payMethod = selectedPayMethod;
 
-        try {
-            let subtotal = cart.reduce((acc, i) => acc + i.total, 0);
-            let { discount, promoId } = calculateCartMarketing();
+    try {
+        const refreshed = await loadMenu({ silent: true });
+        const availability = refreshed
+            ? validateCartAvailability(cart)
+            : { valid: false, message: 'No pudimos verificar el stock. Revisá tu conexión.' };
+        if (!availability.valid) throw new Error(availability.message);
 
-            let shipping = 0;
-            if (currentDeliveryMethod === 'delivery') {
-                const zoneSelect = document.getElementById('shipping-zone');
-                shipping = zoneSelect ? parseInt(zoneSelect.value) : 0;
-            }
+        const serverAvailability = await validateCartAvailabilityOnServer(cart);
+        if (!serverAvailability.valid) throw new Error(serverAvailability.message);
+        currentSecureQuote = serverAvailability.quote;
+        updateCheckoutPrices(currentSecureQuote);
 
-            let total = subtotal - discount + shipping;
-
-            // 1. Client Handling
-            const phone = document.getElementById('cust-phone').value.trim();
-            const custName = document.getElementById('cust-name').value.trim();
-            const custEmail = document.getElementById('cust-email').value.trim() || null;
-            const custAddress = document.getElementById('cust-address')?.value?.trim() || '';
-            const custDoorbell = document.getElementById('cust-doorbell')?.value?.trim() || '';
-            const custNotes = document.getElementById('cust-notes')?.value?.trim() || '';
-            const deliveryAt = currentDeliveryMethod === 'delivery' && isDeliverySlotEnabled()
+        const payload = {
+            p_items: serializeCartForServer(),
+            p_nombre: document.getElementById('cust-name').value.trim(),
+            p_whatsapp: document.getElementById('cust-phone').value.trim(),
+            p_email: document.getElementById('cust-email').value.trim() || null,
+            p_metodo_entrega: currentDeliveryMethod,
+            p_zona: currentDeliveryMethod === 'delivery' ? getSelectedZoneKey() : null,
+            p_direccion: document.getElementById('cust-address')?.value?.trim() || '',
+            p_timbre: document.getElementById('cust-doorbell')?.value?.trim() || null,
+            p_nota: document.getElementById('cust-notes')?.value?.trim() || null,
+            p_entrega_programada: currentDeliveryMethod === 'delivery' && isDeliverySlotEnabled()
                 ? document.getElementById('delivery-time')?.value || null
-                : null;
-            const zoneSelect = document.getElementById('shipping-zone');
-            const zoneLabel = currentDeliveryMethod === 'delivery'
-                ? zoneSelect?.options[zoneSelect.selectedIndex]?.text.replace(/\s*\(\$[\d.]+\)\s*$/, '') || ''
-                : null;
-            let clientId = null;
-
-            // Try to find existing client: by user_id, then phone, then email
-            let existingClient = null;
-            if (currentUser) {
-                const { data } = await supabaseClient
-                    .from('clientes')
-                    .select('id')
-                    .eq('user_id', currentUser.id)
-                    .maybeSingle();
-                existingClient = data;
-            }
-            if (!existingClient && phone) {
-                const { data } = await supabaseClient
-                    .from('clientes')
-                    .select('id')
-                    .eq('whatsapp', phone)
-                    .maybeSingle();
-                existingClient = data;
-            }
-            if (!existingClient && custEmail) {
-                const { data } = await supabaseClient
-                    .from('clientes')
-                    .select('id')
-                    .eq('email', custEmail)
-                    .maybeSingle();
-                existingClient = data;
-            }
-
-            if (existingClient) {
-                console.log("Existing client found, using ID:", existingClient.id);
-                clientId = existingClient.id;
-                // Update their info
-                const clientUpdate = {
-                    nombre: custName,
-                    whatsapp: phone,
-                    user_id: currentUser ? currentUser.id : undefined
-                };
-                if (custEmail) clientUpdate.email = custEmail;
-                if (currentDeliveryMethod === 'delivery') {
-                    clientUpdate.direccion = custAddress;
-                    clientUpdate.timbre = custDoorbell;
-                }
-                await supabaseClient.from('clientes').update(clientUpdate).eq('id', clientId);
-            } else {
-                console.log("New client, capturing data...");
-                const { data: newClient, error: cErr } = await supabaseClient.from('clientes').insert({
-                    user_id: currentUser ? currentUser.id : null,
-                    nombre: custName,
-                    whatsapp: phone,
-                    email: custEmail,
-                    direccion: custAddress,
-                    timbre: custDoorbell,
-                    pedidos_count: 0,
-                    total_gastado: 0
-                }).select();
-                if (cErr) throw cErr;
-                clientId = newClient[0].id;
-            }
-
-            // 2. Insert Order
-            const { data: oData, error: oErr } = await supabaseClient.from('pedidos').insert({
-                cliente_id: clientId,
-                user_id: currentUser ? currentUser.id : null,
-                items: cart,
-                metodo_entrega: currentDeliveryMethod,
-                direccion_entrega: currentDeliveryMethod === 'delivery' ? custAddress : 'Retiro en Local',
-                zona: zoneLabel,
-                timbre: currentDeliveryMethod === 'delivery' ? custDoorbell : null,
-                nota: custNotes || null,
-                entrega_programada: deliveryAt,
-                subtotal,
-                monto_descuento: discount,
-                costo_envio: shipping,
-                total,
-                promo_id: promoId,
-                cupon_id: appliedCoupon ? appliedCoupon.id : null,
-                estado_pago: payMethod === 'efectivo' ? 'pendiente_efectivo' : 'pendiente_transferencia'
-            }).select();
-            if (oErr) throw oErr;
-
-            // 3. Discount stock & usage
-            if (appliedCoupon) {
-                await supabaseClient.from('cupones').update({ usos_actuales: appliedCoupon.usos_actuales + 1 }).eq('id', appliedCoupon.id);
-            }
-            // Stock se descuenta en el admin al confirmar pago (kanban: pendiente → aprobado)
-
-            await updateClienteStats(total, clientId);
-            const orderRecord = oData[0];
-            const receipt = {
-                id: orderRecord.id,
-                numeroPedido: orderRecord.numero_pedido,
-                createdAt: orderRecord.created_at || new Date().toISOString(),
-                items: cart,
-                deliveryMethod: currentDeliveryMethod,
-                address: currentDeliveryMethod === 'delivery' ? custAddress : '',
-                doorbell: currentDeliveryMethod === 'delivery' ? custDoorbell : '',
-                zone: zoneLabel,
-                deliveryAt,
-                notes: custNotes,
-                subtotal,
-                discount,
-                shipping,
-                total,
-                paymentMethod: payMethod
+                : null,
+            p_metodo_pago: selectedPayMethod,
+            p_codigo_cupon: appliedCoupon?.codigo || null
+        };
+        const fingerprint = JSON.stringify(payload);
+        if (!pendingOrderAttempt || pendingOrderAttempt.fingerprint !== fingerprint) {
+            pendingOrderAttempt = {
+                fingerprint,
+                id: createOperationId()
             };
-
-            const previousGuestProfile = readStoredJson(GUEST_PROFILE_KEY) || {};
-            saveGuestCheckoutProfile({
-                nombre: custName,
-                whatsapp: phone,
-                email: custEmail || '',
-                direccion: currentDeliveryMethod === 'delivery' ? custAddress : previousGuestProfile.direccion || '',
-                timbre: currentDeliveryMethod === 'delivery' ? custDoorbell : previousGuestProfile.timbre || ''
-            });
-            writeStoredJson(LAST_ORDER_KEY, receipt);
-            initializeLastOrderReceipt();
-
-            // Vaciar carrito y resetear el flujo después de conservar el comprobante.
-            cart = []; appliedCoupon = null;
-            resetOrderFlowUI();
-            renderOrderConfirmation(receipt);
-        } catch (err) {
-            console.error(err);
-            showAlert("ERROR", "Hubo un problema al procesar tu pedido. Por favor, revisá los datos e intentá de nuevo.");
-        } finally {
-            if (finalizarBtn) { finalizarBtn.disabled = false; finalizarBtn.innerHTML = '<i data-lucide="check-circle"></i> FINALIZAR PEDIDO'; if (typeof lucide !== 'undefined') lucide.createIcons(); }
         }
+
+        const { data: receipt, error } = await supabaseClient.rpc('crear_pedido_seguro', {
+            ...payload,
+            p_idempotency_key: pendingOrderAttempt.id
+        });
+        if (error) throw new Error(serverErrorMessage(error, 'No pudimos crear el pedido. Intentá nuevamente.'));
+
+        writeStoredJson(LAST_ORDER_KEY, receipt, LAST_ORDER_TTL_MS);
+        initializeLastOrderReceipt();
+        cart = [];
+        appliedCoupon = null;
+        currentSecureQuote = null;
+        pendingOrderAttempt = null;
+        resetOrderFlowUI();
+        renderOrderConfirmation(receipt);
+    } catch (error) {
+        console.error('Checkout error:', error);
+        showAlert('REVISÁ TU PEDIDO', error.message || 'Hubo un problema al procesar el pedido. Intentá nuevamente.');
+    } finally {
+        if (finalizarBtn) {
+            finalizarBtn.disabled = false;
+            finalizarBtn.innerHTML = '<i data-lucide="check-circle"></i> FINALIZAR PEDIDO';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+    }
 };

@@ -1,4 +1,5 @@
 .claude/
 tmp/
-RIOH_SITEGROUND.zip
-.vercel
+entrega_siteground/
+RIOH_SITEGROUND*.zip
+.vercel/

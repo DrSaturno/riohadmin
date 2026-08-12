@@ -126,14 +126,31 @@ let productPreviewObjectUrl = null;
 // ── QZ TRAY STATE ──
 let _qzConnected = false;
 let _selectedPrinter = localStorage.getItem('rioh_printer') || null;
+const _qzUnsignedLocalOnly = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 
 // ── IMAGE HELPER ──
 function getProductImage(productNameOrUrl) {
     if (productNameOrUrl) {
-        if (productNameOrUrl.toLowerCase().includes('papas')) return 'papas.png';
-        if (productNameOrUrl.toLowerCase().includes('nuggets')) return 'nuggets.png';
+        if (productNameOrUrl.toLowerCase().includes('papas')) return 'papas.webp';
+        if (productNameOrUrl.toLowerCase().includes('nuggets')) return 'nuggets.webp';
     }
-    return 'burger1.png';
+    return 'burger1.webp';
+}
+
+const OPTIMIZED_ADMIN_IMAGES = new Map([
+    ['malbec_rich.jpg', 'malbec_rich.webp'],
+    ['cheddar_soul.jpg', 'cheddar_soul.webp'],
+    ['crunchy_byte.jpg', 'crunchy_byte.webp'],
+    ['fresh_bloom.jpg', 'fresh_bloom.webp'],
+    ['burger1.png', 'burger1.webp'],
+    ['nuggets.png', 'nuggets.webp'],
+    ['papas.png', 'papas.webp']
+]);
+
+function optimizedAdminImage(value) {
+    const raw = String(value || '').trim();
+    if (!raw || /^(?:https?:)?\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+    return OPTIMIZED_ADMIN_IMAGES.get(raw.replace(/^\.\//, '')) || raw;
 }
 
 function normalizeOrderExtra(extra) {
@@ -159,7 +176,12 @@ function formatScheduledDelivery(isoValue, fallback = 'A coordinar') {
     if (!isoValue) return fallback;
     const date = new Date(isoValue);
     if (Number.isNaN(date.getTime())) return fallback;
-    return `${date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs`;
+    return `${date.toLocaleTimeString('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23'
+    })} hs`;
 }
 
 // ── MOBILE MENU ──
@@ -202,7 +224,10 @@ function initForms() {
 
 // ── QZ TRAY INIT ──
 async function initQZTray() {
-    if (typeof qz === 'undefined') { updateQZStatusUI(false); return; }
+    if (!_qzUnsignedLocalOnly || typeof qz === 'undefined') {
+        updateQZStatusUI(false);
+        return;
+    }
 
     // Modo sin firma digital (uso local/privado)
     qz.security.setCertificatePromise(function(resolve) { resolve(); });
@@ -272,11 +297,14 @@ function renderTicketeraStatus() {
         document.getElementById('qz-printer-block').style.display = 'block';
         document.getElementById('qz-offline-block').style.display = 'none';
     } else {
+        const productionNotice = !_qzUnsignedLocalOnly
+            ? 'En producción se usa la impresión segura del navegador. La impresión silenciosa requiere un certificado QZ y un endpoint de firma.'
+            : 'Instalá QZ Tray para imprimir sin diálogos';
         statusEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:12px;background:#ffebee;border:2px solid #c62828;">
             <span style="font-size:1.4rem;">🔴</span>
             <div>
                 <div style="font-weight:700;font-size:0.9rem;color:#b71c1c;">QZ TRAY NO DETECTADO</div>
-                <div style="font-size:0.78rem;color:#c62828;">Instalá QZ Tray para imprimir sin diálogos</div>
+                <div style="font-size:0.78rem;color:#c62828;">${productionNotice}</div>
             </div>
         </div>`;
         document.getElementById('qz-printer-block').style.display = 'none';
@@ -290,9 +318,10 @@ async function loadPrintersForTicketera() {
         const select = document.getElementById('qz-printer-select');
         if (!select) return;
         const saved = _selectedPrinter || '';
-        select.innerHTML = printers.map(p =>
-            `<option value="${p}" ${p === saved ? 'selected' : ''}>${p}</option>`
-        ).join('');
+        select.replaceChildren(...printers.map(printer => {
+            const option = new Option(String(printer), String(printer), false, printer === saved);
+            return option;
+        }));
     } catch (e) {
         console.error('[QZ] Error cargando impresoras:', e);
     }
@@ -308,6 +337,10 @@ window.saveTicketeraConfig = function () {
 };
 
 window.retryQZConnect = async function () {
+    if (!_qzUnsignedLocalOnly) {
+        showStatusToast('QZ Tray requiere firma digital para habilitarse en producción');
+        return;
+    }
     const btn = document.querySelector('#qz-offline-block button[onclick="retryQZConnect()"]');
     if (btn) btn.textContent = 'CONECTANDO...';
     await initQZTray();
@@ -416,7 +449,7 @@ window.exportToWhatsApp = function () {
         rows.forEach((r, i) => { if (i < 5) sellers += `  ${r.textContent.trim()}\n`; });
     }
     const text = `🍔 *RIOH. Burgers — Dashboard ${periodo}*\n\n📦 Pedidos: *${pedidos}*\n🍔 Burgers vendidas: *${burgers}*\n💰 Facturado: *${total}*\n🎯 Ticket promedio: *${ticket}*\n\n🏆 Ranking de productos:\n${sellers || '  Sin datos'}\n\n_Panel RIOH.ADMIN_`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
 };
 
 window.exportToPDF = function () { window.print(); };
@@ -489,8 +522,11 @@ async function loadStoreHours() {
 
             const dayNames = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
             const daysText = (h.dias || []).map(d => dayNames[d]).join(', ');
-            document.getElementById('hours-status').innerHTML =
-                `<strong>Configuración actual:</strong> ${daysText || 'Sin días'} de ${h.hora_apertura || '--:--'} a ${h.hora_cierre || '--:--'}`;
+            const status = document.getElementById('hours-status');
+            status.replaceChildren();
+            const strong = document.createElement('strong');
+            strong.textContent = 'Configuración actual:';
+            status.append(strong, ` ${daysText || 'Sin días'} de ${h.hora_apertura || '--:--'} a ${h.hora_cierre || '--:--'}`);
         }
     } catch (e) { console.error("Error loading hours:", e); }
 }
@@ -529,6 +565,25 @@ function escapeAdminHtml(value) {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#039;');
+}
+
+function safeAdminId(value) {
+    const id = String(value || '');
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+        ? id
+        : '';
+}
+
+function safeAdminImageUrl(value, fallback = 'burger1.webp') {
+    const raw = optimizedAdminImage(value);
+    if (!raw) return fallback;
+    try {
+        const url = new URL(raw, window.location.href);
+        if (!['http:', 'https:'].includes(url.protocol) && url.origin !== window.location.origin) return fallback;
+        return url.href;
+    } catch (_) {
+        return fallback;
+    }
 }
 
 function slugifyProductCategory(value) {
@@ -1151,7 +1206,7 @@ function renderProductosTable(productos) {
         const statusBadge = product.activo
             ? '<span class="status-badge status-ok">ACTIVO</span>'
             : '<span class="status-badge status-inactive">INACTIVO</span>';
-        const imageSource = product.imagen_url || getProductImage(product.nombre);
+        const imageSource = safeAdminImageUrl(product.imagen_url || getProductImage(product.nombre));
 
         return `<tr>
             <td><img src="${escapeAdminHtml(imageSource)}" class="product-table-img" alt="${escapeAdminHtml(product.nombre)}"></td>
@@ -1451,36 +1506,41 @@ function renderKanban(orders) {
         container.innerHTML = cards.map(o => {
             const nombre = o.clientes?.nombre || 'Cliente S/N';
             const tel = o.clientes?.whatsapp || '';
+            const orderId = safeAdminId(o.id);
             const d = new Date(o.created_at);
             const hora = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
             const items = (o.items || []).map(i => {
-                const extrasStr = (i.extras && i.extras.length) ? ` <small style="color:var(--primary); font-weight:700;">+ ${formatOrderExtras(i.extras)}</small>` : '';
-                return `<div>${i.qty}x ${i.title} <small style="color:#999;">(${i.type || '-'})</small>${extrasStr}</div>`;
+                const extrasStr = (i.extras && i.extras.length)
+                    ? ` <small style="color:var(--primary); font-weight:700;">+ ${escapeAdminHtml(formatOrderExtras(i.extras))}</small>`
+                    : '';
+                return `<div>${Math.max(1, parseInt(i.qty) || 1)}x ${escapeAdminHtml(i.title)} <small style="color:#999;">(${escapeAdminHtml(i.type || '-')})</small>${extrasStr}</div>`;
             }).join('');
-            const entrega = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup' ? '🏠 Retiro' : `🛵 ${o.direccion_entrega || 'Delivery'}`;
-            const horarioEntrega = formatScheduledDelivery(o.entrega_programada);
+            const entrega = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup'
+                ? '🏠 Retiro'
+                : `🛵 ${escapeAdminHtml(o.direccion_entrega || 'Delivery')}`;
+            const horarioEntrega = escapeAdminHtml(formatScheduledDelivery(o.entrega_programada));
 
-            const actionRow = estado !== 'entregado'
+            const actionRow = orderId && estado !== 'entregado'
                 ? `<div class="card-actions">
-                    ${prevLabel[estado] ? `<button class="card-btn card-btn-back" onclick="retreatOrder('${o.id}','${estado}')">${prevLabel[estado]}</button>` : ''}
-                    <button class="card-btn card-btn-advance" onclick="advanceOrder('${o.id}','${estado}')">${nextLabel[estado]} →</button>
-                    <button class="card-btn card-btn-delete" title="Cancelar pedido" onclick="deleteKanbanOrder('${o.id}')"><i data-lucide="circle-x" style="width:12px;"></i></button>
+                    ${prevLabel[estado] ? `<button class="card-btn card-btn-back" onclick="retreatOrder('${orderId}','${estado}')">${prevLabel[estado]}</button>` : ''}
+                    <button class="card-btn card-btn-advance" onclick="advanceOrder('${orderId}','${estado}')">${nextLabel[estado]} →</button>
+                    <button class="card-btn card-btn-delete" title="Cancelar pedido" onclick="deleteKanbanOrder('${orderId}')"><i data-lucide="circle-x" style="width:12px;"></i></button>
                    </div>`
-                : `<div class="card-actions">
-                    <button class="card-btn card-btn-back" style="flex:1;" onclick="retreatOrder('${o.id}','${estado}')">${prevLabel[estado]}</button>
-                   </div>`;
+                : (orderId ? `<div class="card-actions">
+                    <button class="card-btn card-btn-back" style="flex:1;" onclick="retreatOrder('${orderId}','${estado}')">${prevLabel[estado]}</button>
+                   </div>` : '');
 
-            return `<div class="kanban-card" onclick="openOrderDetail('${o.id}')">
+            return `<div class="kanban-card" ${orderId ? `onclick="openOrderDetail('${orderId}')"` : ''}>
                 <div class="kanban-card-header">
-                    <strong style="font-family:'Archivo Black'; font-size:0.88rem;">#${o.numero_pedido || '---'}</strong>
+                    <strong style="font-family:'Archivo Black'; font-size:0.88rem;">#${escapeAdminHtml(o.numero_pedido || '---')}</strong>
                     <small style="color:#888; white-space:nowrap;">${hora}</small>
                 </div>
-                <div style="font-size:0.83rem; font-weight:700;">${nombre}</div>
-                ${tel ? `<div style="font-size:0.75rem; color:#888;">${tel}</div>` : ''}
+                <div style="font-size:0.83rem; font-weight:700;">${escapeAdminHtml(nombre)}</div>
+                ${tel ? `<div style="font-size:0.75rem; color:#888;">${escapeAdminHtml(tel)}</div>` : ''}
                 <div style="font-size:0.75rem; color:#666; margin-top:2px;">${entrega}</div>
                 <div style="display:inline-block; margin-top:5px; padding:3px 6px; background:#FFF3CD; border:1px solid #111; font-family:'Archivo Black'; font-size:0.68rem;">⏰ ${horarioEntrega}</div>
                 <div class="kanban-items">${items}</div>
-                <div class="kanban-total">$${(o.total || 0).toLocaleString()}</div>
+                <div class="kanban-total">$${Number(o.total || 0).toLocaleString('es-AR')}</div>
                 <div onclick="event.stopPropagation()">${actionRow}</div>
             </div>`;
         }).join('');
@@ -1562,13 +1622,13 @@ window.openOrderDetail = function (orderId) {
     const itemsHtml = (o.items || []).map(i => {
         const extrasCost = ((i.extras || []).length > 0) ? ` <span style="font-size:0.75rem; color:#999;">(+extras)</span>` : '';
         return `<div class="order-item-row">
-            <div class="order-item-qty">${i.qty}×</div>
+            <div class="order-item-qty">${Math.max(1, parseInt(i.qty) || 1)}×</div>
             <div class="order-item-info">
-                <div class="order-item-name">${i.title}${extrasCost}</div>
-                ${i.type ? `<div class="order-item-type">${i.type}</div>` : ''}
-                ${(i.extras && i.extras.length) ? `<div class="order-item-extras">+ ${formatOrderExtras(i.extras, ' · ')}</div>` : ''}
+                <div class="order-item-name">${escapeAdminHtml(i.title)}${extrasCost}</div>
+                ${i.type ? `<div class="order-item-type">${escapeAdminHtml(i.type)}</div>` : ''}
+                ${(i.extras && i.extras.length) ? `<div class="order-item-extras">+ ${escapeAdminHtml(formatOrderExtras(i.extras, ' · '))}</div>` : ''}
             </div>
-            <div class="order-item-price">$${((i.pricePerUnit || 0) * (parseInt(i.qty) || 1)).toLocaleString()}</div>
+            <div class="order-item-price">$${(Number(i.pricePerUnit || 0) * (parseInt(i.qty) || 1)).toLocaleString('es-AR')}</div>
         </div>`;
     }).join('');
     document.getElementById('od-items').innerHTML = itemsHtml || '<div style="color:#999;">Sin items</div>';
@@ -1583,12 +1643,13 @@ window.openOrderDetail = function (orderId) {
     const nextLabel = { pendiente: 'CONFIRMAR PAGO', pendiente_efectivo: 'CONFIRMAR PAGO', pendiente_transferencia: 'CONFIRMAR PAGO', aprobado: 'EN PREPARACIÓN', preparacion: 'ENTREGADO ✓' };
     const prevLabel = { aprobado: '← Nuevo', preparacion: '← Pago OK', entregado: '← En prep.' };
     const estado = o.estado_pago || 'pendiente';
+    const safeOrderId = safeAdminId(o.id);
     let actionsHtml = '';
-    if (prevLabel[estado]) {
-        actionsHtml += `<button class="card-btn card-btn-back" style="flex:1;" onclick="retreatOrder('${o.id}','${estado}'); closeOrderDetailModal();">${prevLabel[estado]}</button>`;
+    if (safeOrderId && prevLabel[estado]) {
+        actionsHtml += `<button class="card-btn card-btn-back" style="flex:1;" onclick="retreatOrder('${safeOrderId}','${estado}'); closeOrderDetailModal();">${prevLabel[estado]}</button>`;
     }
-    if (nextLabel[estado]) {
-        actionsHtml += `<button class="card-btn card-btn-advance" style="flex:2;" onclick="advanceOrder('${o.id}','${estado}'); closeOrderDetailModal();">${nextLabel[estado]} →</button>`;
+    if (safeOrderId && nextLabel[estado]) {
+        actionsHtml += `<button class="card-btn card-btn-advance" style="flex:2;" onclick="advanceOrder('${safeOrderId}','${estado}'); closeOrderDetailModal();">${nextLabel[estado]} →</button>`;
     }
     document.getElementById('od-actions').innerHTML = actionsHtml;
 
@@ -1614,7 +1675,7 @@ function updatePedidosMetrics(orders) {
 
     // Contar burgers (solo categoría burgers, no nuggets/papas)
     let totalBurgers = 0;
-    let detalleItems = {};
+    let detalleItems = Object.create(null);
     orders.forEach(o => {
         (o.items || []).forEach(i => {
             const title = i.title || '';
@@ -1661,7 +1722,7 @@ window.shareOrdersWhatsApp = function () {
     const ticket = confirmados.length > 0 ? Math.round(facturado / confirmados.length) : 0;
 
     let totalBurgers = 0;
-    let detalleItems = {};
+    let detalleItems = Object.create(null);
     orders.forEach(o => {
         (o.items || []).forEach(i => {
             const qty = parseInt(i.qty) || 1;
@@ -1697,7 +1758,7 @@ window.shareOrdersWhatsApp = function () {
     msg += `• En prep: ${preparacion}\n`;
     msg += `• Entregados: ${entregados}\n`;
 
-    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank', 'noopener');
 };
 
 // ── PDF DOWNLOAD ──
@@ -1749,7 +1810,7 @@ window.downloadOrdersPDF = function () {
     const facturado = confirmados.reduce((sum, o) => sum + (o.total || 0), 0);
     const ticket = confirmados.length > 0 ? Math.round(facturado / confirmados.length) : 0;
     let totalBurgers = 0;
-    let detalleItems = {};
+    let detalleItems = Object.create(null);
     orders.forEach(o => {
         (o.items || []).forEach(i => {
             const qty = parseInt(i.qty) || 1;
@@ -1927,115 +1988,6 @@ window.advanceOrder = async function (id, _uiState) {
     }
 };
 
-async function deductOrderStock(orderId) {
-    throw new Error('Flujo obsoleto: el stock se descuenta con avanzar_pedido_seguro.');
-    /* Código legacy conservado temporalmente como referencia; no es ejecutable.
-    // Mapa de extras → qué insumo buscar y cuánto descontar por cada extra
-    const EXTRAS_INSUMO_MAP = {
-        'Medallón Extra':  { buscar: 'medallón', cantidad: 1 },
-        'Extra Cheddar':   { buscar: 'cheddar',  cantidad: 2 },
-        'Extra Bacon':     { buscar: 'panceta ahumada', cantidad: 2 }
-    };
-
-    try {
-        const { data: order } = await client.from('pedidos').select('items').eq('id', orderId).single();
-        if (!order || !order.items) { console.warn("deductOrderStock: no items found for order", orderId); return; }
-
-        const productIds = [...new Set(order.items.filter(i => i.product_id).map(i => i.product_id))];
-
-        // Precargar insumos y productos EN PARALELO (en vez de una consulta por item)
-        const [{ data: allInsumos }, { data: allProductos }] = await Promise.all([
-            client.from('insumos').select('id, nombre, stock_actual'),
-            productIds.length ? client.from('productos').select('id, receta, stock').in('id', productIds) : Promise.resolve({ data: [] })
-        ]);
-
-        const insumosMap = {};
-        (allInsumos || []).forEach(ins => { insumosMap[String(ins.id)] = ins; });
-        const productosMap = {};
-        (allProductos || []).forEach(p => { productosMap[String(p.id)] = p; });
-
-        console.log("═══ DEDUCCIÓN DE STOCK — Pedido:", orderId, "═══");
-
-        // Acumular todas las deducciones antes de aplicarlas
-        const insumoDeductions = {};   // { insumo_id: totalToDeduct }
-        const productoDeductions = {}; // { producto_id: totalToDeduct }
-
-        for (const item of order.items) {
-            if (!item.product_id) continue;
-            const qty = parseInt(item.qty) || 1;
-            const isDoble = (item.type || '').toLowerCase() === 'doble';
-
-            const producto = productosMap[String(item.product_id)];
-            if (!producto) { console.warn("  ⚠ Producto no encontrado:", item.product_id); continue; }
-
-            // --- 1) Deducciones por RECETA del producto ---
-            if (producto.receta && producto.receta.ingredientes && producto.receta.ingredientes.length > 0) {
-                for (const ri of producto.receta.ingredientes) {
-                    const baseQty = parseFloat(ri.cantidad) || 0;
-                    let typeFactor = 1;
-                    if (isDoble && ri.doble_mult) {
-                        typeFactor = parseFloat(ri.doble_mult);
-                    }
-                    const deductAmount = baseQty * typeFactor * qty;
-                    const ingId = String(ri.ingrediente_id);
-                    insumoDeductions[ingId] = (insumoDeductions[ingId] || 0) + deductAmount;
-                    console.log(`  📦 Receta → ${ri.nombre}: base=${baseQty} × factor=${typeFactor} × qty=${qty} = ${deductAmount}`);
-                }
-            } else if (producto.stock !== null && producto.stock !== undefined) {
-                // Producto sin receta (ej: nuggets, papas): descontar stock directo
-                const prodId = String(item.product_id);
-                productoDeductions[prodId] = (productoDeductions[prodId] || 0) + qty;
-                console.log(`  📦 Producto directo → ${item.title}: qty=${qty}`);
-            }
-
-            // --- 2) Deducciones por EXTRAS del item ---
-            if (item.extras && item.extras.length > 0) {
-                for (const extra of item.extras) {
-                    const normalizedExtra = normalizeOrderExtra(extra);
-                    const extraName = normalizedExtra.name;
-                    const mapping = EXTRAS_INSUMO_MAP[extraName];
-                    if (!mapping) {
-                        console.warn(`  ⚠ Extra "${extraName}" no tiene mapeo de insumo definido`);
-                        continue;
-                    }
-                    // Buscar el insumo por nombre (case-insensitive, parcial)
-                    const matchedInsumo = allInsumos ? allInsumos.find(ins =>
-                        ins.nombre.toLowerCase().includes(mapping.buscar.toLowerCase())
-                    ) : null;
-                    if (!matchedInsumo) {
-                        console.warn(`  ⚠ No se encontró insumo para extra "${extraName}" (buscando "${mapping.buscar}")`);
-                        continue;
-                    }
-                    const deductAmount = mapping.cantidad * normalizedExtra.qty * qty;
-                    const ingId = String(matchedInsumo.id);
-                    insumoDeductions[ingId] = (insumoDeductions[ingId] || 0) + deductAmount;
-                    console.log(`  🔥 Extra → "${extraName}" → insumo "${matchedInsumo.nombre}" (id:${ingId}): ${mapping.cantidad} × extra=${normalizedExtra.qty} × item=${qty} = ${deductAmount}`);
-                }
-            }
-        }
-
-        // --- 3) Aplicar todas las deducciones acumuladas EN PARALELO ---
-        // (ya tenemos el stock actual en memoria de la precarga, no hace falta re-consultarlo)
-        const insumoUpdates = Object.entries(insumoDeductions).map(([insumoId, totalDeduct]) => {
-            const current = insumosMap[insumoId]?.stock_actual ?? 0;
-            const newStock = Math.max(0, current - totalDeduct);
-            console.log(`  ✅ INSUMO "${insumosMap[insumoId]?.nombre || insumoId}": ${current} - ${totalDeduct} = ${newStock}`);
-            return client.from('insumos').update({ stock_actual: newStock }).eq('id', insumoId);
-        });
-
-        const productoUpdates = Object.entries(productoDeductions).map(([prodId, totalDeduct]) => {
-            const current = productosMap[prodId]?.stock ?? 0;
-            const newStock = Math.max(0, current - totalDeduct);
-            console.log(`  ✅ PRODUCTO ${prodId}: ${current} - ${totalDeduct} = ${newStock}`);
-            return client.from('productos').update({ stock: newStock }).eq('id', prodId);
-        });
-
-        await Promise.all([...insumoUpdates, ...productoUpdates]);
-        console.log("═══ DEDUCCIÓN COMPLETA — Pedido:", orderId, "═══");
-    } catch (e) { console.error("Error deducting stock:", e); }
-    */
-}
-
 window.retreatOrder = async function (id, _uiState) {
     try {
         const { data, error } = await client.rpc('retroceder_pedido_seguro', { p_pedido_id: id });
@@ -2108,8 +2060,10 @@ async function loadDashboard() {
     try {
         // Precargar productos para obtener imágenes del ranking
         const { data: productosData } = await client.from('productos').select('id, nombre, imagen_url');
-        const productoImgMap = {};
-        (productosData || []).forEach(p => { productoImgMap[p.nombre] = p.imagen_url || getProductImage(p.nombre); });
+        const productoImgMap = new Map();
+        (productosData || []).forEach(p => {
+            productoImgMap.set(String(p.nombre || ''), safeAdminImageUrl(p.imagen_url || getProductImage(p.nombre)));
+        });
 
         // Query pedidos WITH client data, filtered by date
         let query = client.from('pedidos').select('*, clientes(id, user_id, nombre, whatsapp, email)').order('created_at', { ascending: false });
@@ -2149,19 +2103,19 @@ async function loadDashboard() {
 
         // Contar burgers y items
         let totalBurgers = 0;
-        const itemCounts = {};
+        const itemCounts = new Map();
         confirmados.forEach(p => {
             (p.items || []).forEach(i => {
                 const title = i.title || '';
                 const qty = parseInt(i.qty) || 1;
                 const isBurger = !title.toLowerCase().includes('nuggets') && !title.toLowerCase().includes('papas');
                 if (isBurger) totalBurgers += qty;
-                itemCounts[title] = (itemCounts[title] || 0) + qty;
+                itemCounts.set(title, (itemCounts.get(title) || 0) + qty);
             });
         });
 
         // Top 2 burgers para subtítulo
-        const topBurgers = Object.entries(itemCounts)
+        const topBurgers = [...itemCounts.entries()]
             .filter(([k]) => !k.toLowerCase().includes('nuggets') && !k.toLowerCase().includes('papas'))
             .sort((a, b) => b[1] - a[1]).slice(0, 2);
 
@@ -2179,13 +2133,13 @@ async function loadDashboard() {
         document.getElementById('stats-ticket-sub').innerText = confirmados.length > 0 ? `sobre ${confirmados.length} confirmados` : '—';
 
         // ── Ranking Burgers con imágenes ──
-        const sorted = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
+        const sorted = [...itemCounts.entries()].sort((a, b) => b[1] - a[1]);
         document.getElementById('best-sellers-list').innerHTML = sorted.map(([name, qty], i) => {
-            const img = productoImgMap[name] || getProductImage(name);
+            const img = productoImgMap.get(name) || safeAdminImageUrl(getProductImage(name));
             const highlight = i === 0 ? 'background:#FFF9C4; border:1px solid #FBC02D;' : '';
             return `<div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid #eee; ${highlight}">
-                <img src="${img}" alt="${name}" style="width:40px; height:40px; border-radius:50%; object-fit:cover; border:2px solid #111; flex-shrink:0;">
-                <span style="flex:1;">${i + 1}. ${name}</span>
+                <img src="${escapeAdminHtml(img)}" alt="${escapeAdminHtml(name)}" style="width:40px; height:40px; border-radius:50%; object-fit:cover; border:2px solid #111; flex-shrink:0;">
+                <span style="flex:1;">${i + 1}. ${escapeAdminHtml(name)}</span>
                 <span style="font-weight:900; font-family:'Archivo Black'; white-space:nowrap;">${qty} U.</span>
             </div>`;
         }).join('') || '<div style="color:#999; padding:20px;">SIN DATOS</div>';
@@ -2199,11 +2153,11 @@ async function loadDashboard() {
             }).join(', ');
             return `<div style="border-bottom: 1px dashed #eee; padding: 10px 0;">
                 <div style="display:flex; justify-content:space-between;">
-                    <strong>#${p.numero_pedido || 'S/N'}</strong>
-                    <span style="font-weight:900;">$${(p.total || 0).toLocaleString()}</span>
+                    <strong>#${escapeAdminHtml(p.numero_pedido || 'S/N')}</strong>
+                    <span style="font-weight:900;">$${Number(p.total || 0).toLocaleString('es-AR')}</span>
                 </div>
-                <div style="font-size:0.75rem; color:#555; margin-top:2px;">${itemsStr}</div>
-                <small style="color:#888;">${new Date(p.created_at).toLocaleString('es-AR')} · ${p.clientes?.nombre || 'S/N'}</small>
+                <div style="font-size:0.75rem; color:#555; margin-top:2px;">${escapeAdminHtml(itemsStr)}</div>
+                <small style="color:#888;">${escapeAdminHtml(new Date(p.created_at).toLocaleString('es-AR'))} · ${escapeAdminHtml(p.clientes?.nombre || 'S/N')}</small>
             </div>`;
         }).join('') || '<div style="color:#999; padding:20px;">SIN VENTAS</div>';
 
@@ -2215,15 +2169,15 @@ async function loadDashboard() {
 
 function renderCustomerRanking(pedidos) {
     // Agrupar pedidos por cliente, usando cliente_id o user_id
-    const clientMap = {}; // keyed by a unique client identifier
+    const clientMap = new Map();
 
     pedidos.forEach(p => {
         const clienteData = p.clientes;
         const key = clienteData?.id || p.user_id || p.cliente_id || null;
         if (!key) return;
 
-        if (!clientMap[key]) {
-            clientMap[key] = {
+        if (!clientMap.has(key)) {
+            clientMap.set(key, {
                 id: clienteData?.id || key,
                 user_id: clienteData?.user_id || p.user_id || '',
                 nombre: clienteData?.nombre || 'S/N',
@@ -2232,22 +2186,23 @@ function renderCustomerRanking(pedidos) {
                 pedidos: 0,
                 burgers: 0,
                 total: 0
-            };
+            });
         }
 
-        clientMap[key].pedidos++;
-        clientMap[key].total += (p.total || 0);
+        const clientEntry = clientMap.get(key);
+        clientEntry.pedidos++;
+        clientEntry.total += (p.total || 0);
 
         (p.items || []).forEach(i => {
             const t = (i.type || '').toLowerCase();
             if (t === 'simple' || t === 'doble') {
-                clientMap[key].burgers += (parseInt(i.qty) || 1);
+                clientEntry.burgers += (parseInt(i.qty) || 1);
             }
         });
     });
 
     // Ordenar por total gastado descendente
-    const ranked = Object.values(clientMap).sort((a, b) => b.total - a.total);
+    const ranked = [...clientMap.values()].sort((a, b) => b.total - a.total);
 
     const tbody = document.getElementById('customer-ranking-body');
     if (!tbody) return;
@@ -2255,25 +2210,31 @@ function renderCustomerRanking(pedidos) {
     tbody.innerHTML = ranked.map((c, i) => {
         const ticket = c.pedidos > 0 ? Math.round(c.total / c.pedidos) : 0;
         const top = i === 0 ? 'background:#FFF9C4;' : '';
-        const cid = c.id || '';
+        const cid = safeAdminId(c.id);
         return `<tr style="${top}">
             <td style="font-family:'Archivo Black';">${i + 1}</td>
-            <td style="font-weight:700;">${c.nombre}</td>
+            <td style="font-weight:700;">${escapeAdminHtml(c.nombre)}</td>
             <td>${c.pedidos}</td>
             <td style="font-weight:900;">${c.burgers}</td>
             <td style="font-weight:900;">$${c.total.toLocaleString()}</td>
             <td>$${ticket.toLocaleString()}</td>
-            <td><button class="qty-btn" style="font-size:0.7rem; padding:5px 10px;" onclick="openCustomerProfile('${cid}','${c.nombre.replace(/'/g, "\\'")}','${c.whatsapp}','${c.email}')">VER</button></td>
+            <td>${cid ? `<button class="qty-btn" style="font-size:0.7rem; padding:5px 10px;" onclick="openCustomerProfileById('${cid}')">VER</button>` : ''}</td>
         </tr>`;
     }).join('') || '<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">Sin datos de clientes</td></tr>';
 }
 
 // ── CUSTOMER PROFILE MODAL ──
+window.openCustomerProfileById = function (clientId) {
+    const client = allCRMClients.find(item => String(item.id) === String(clientId));
+    if (client) return openCustomerProfile(client.id, client.nombre, client.whatsapp, client.email);
+    return openCustomerProfile(clientId, 'Cliente', '', '');
+};
+
 window.openCustomerProfile = async function (userId, nombre, whatsapp, email) {
     document.getElementById('customer-modal').style.display = 'block';
     document.getElementById('profile-name').textContent = nombre || 'Cliente';
-    document.getElementById('profile-info').innerHTML =
-        `${whatsapp ? `📱 ${whatsapp}` : ''} ${email ? `&nbsp;|&nbsp; ✉️ ${email}` : ''}`;
+    document.getElementById('profile-info').textContent =
+        [whatsapp ? `📱 ${whatsapp}` : '', email ? `✉️ ${email}` : ''].filter(Boolean).join(' | ');
     document.getElementById('profile-stats').innerHTML = '<div style="color:#999; font-size:0.85rem; grid-column:1/-1;">Cargando historial...</div>';
     document.getElementById('profile-orders').innerHTML = '';
     const burgersReset = document.getElementById('profile-burgers');
@@ -2332,25 +2293,25 @@ window.openCustomerProfile = async function (userId, nombre, whatsapp, email) {
                 const estadoColor = { pendiente: '#FF6B35', aprobado: '#2E7D32', preparacion: '#1565C0', entregado: '#424242' };
                 return `<div class="profile-order">
                     <div class="profile-order-header">
-                        <strong style="font-family:'Archivo Black';">#${p.numero_pedido || 'S/N'} — ${fecha} ${hora}</strong>
-                        <span style="font-size:0.7rem; font-weight:700; color:${estadoColor[p.estado_pago] || '#999'}; text-transform:uppercase;">${p.estado_pago || 'pendiente'}</span>
+                        <strong style="font-family:'Archivo Black';">#${escapeAdminHtml(p.numero_pedido || 'S/N')} — ${fecha} ${hora}</strong>
+                        <span style="font-size:0.7rem; font-weight:700; color:${estadoColor[p.estado_pago] || '#999'}; text-transform:uppercase;">${escapeAdminHtml(p.estado_pago || 'pendiente')}</span>
                     </div>
-                    <div style="font-size:0.82rem; color:#555; margin-bottom:4px;">${items}</div>
+                    <div style="font-size:0.82rem; color:#555; margin-bottom:4px;">${escapeAdminHtml(items)}</div>
                     <div style="text-align:right; font-family:'Archivo Black';">$${(p.total || 0).toLocaleString()}</div>
                 </div>`;
             }).join('');
 
         // Burger ranking
-        const burgerCounts = {};
+        const burgerCounts = new Map();
         pedidos.forEach(p => {
             (p.items || []).forEach(i => {
                 if (i.title) {
                     const key = i.title;
-                    burgerCounts[key] = (burgerCounts[key] || 0) + (i.qty || 1);
+                    burgerCounts.set(key, (burgerCounts.get(key) || 0) + (i.qty || 1));
                 }
             });
         });
-        const sortedBurgers = Object.entries(burgerCounts).sort((a, b) => b[1] - a[1]);
+        const sortedBurgers = [...burgerCounts.entries()].sort((a, b) => b[1] - a[1]);
 
         const burgersEl = document.getElementById('profile-burgers');
         if (burgersEl) {
@@ -2361,7 +2322,7 @@ window.openCustomerProfile = async function (userId, nombre, whatsapp, email) {
                     </h3>` +
                     sortedBurgers.map(([name, count], idx) =>
                         `<div class="profile-burger-rank${idx === 0 ? ' top-burger' : ''}">
-                            <span class="rank-name">${idx === 0 ? '&#127942; ' : (idx + 1) + '. '}${name}</span>
+                            <span class="rank-name">${idx === 0 ? '&#127942; ' : (idx + 1) + '. '}${escapeAdminHtml(name)}</span>
                             <span class="rank-count">${count}x</span>
                         </div>`
                     ).join('');
@@ -2395,22 +2356,23 @@ async function loadStockData() {
             let sClass = 'status-ok', sText = 'NORMAL';
             if (i.stock_actual <= 0) { sClass = 'status-critical'; sText = 'AGOTADO'; }
             else if (i.stock_actual <= i.stock_minimo) { sClass = 'status-low'; sText = 'BAJO'; }
+            const ingredientId = safeAdminId(i.id);
             return `<tr>
-                <td><strong>${i.nombre}</strong></td>
-                <td style="font-size:1.1rem; font-weight:900;">${i.stock_actual} <small style="color:#888;">${i.unidad}</small></td>
-                <td>${i.stock_minimo}</td>
+                <td><strong>${escapeAdminHtml(i.nombre)}</strong></td>
+                <td style="font-size:1.1rem; font-weight:900;">${Number(i.stock_actual) || 0} <small style="color:#888;">${escapeAdminHtml(i.unidad)}</small></td>
+                <td>${Number(i.stock_minimo) || 0}</td>
                 <td><span class="status-badge ${sClass}">${sText}</span></td>
                 <td style="white-space:nowrap;">
-                    <button class="qty-btn" style="padding:7px 10px;" onclick="quickUpdateStock('${i.id}', 1)" title="Sumar 1">
+                    <button class="qty-btn" style="padding:7px 10px;" onclick="quickUpdateStock('${ingredientId}', 1)" title="Sumar 1">
                         <i data-lucide="plus" style="width:14px; height:14px;"></i>
                     </button>
-                    <button class="qty-btn" style="padding:7px 10px; margin-left:4px;" onclick="quickUpdateStock('${i.id}', -1)" title="Restar 1">
+                    <button class="qty-btn" style="padding:7px 10px; margin-left:4px;" onclick="quickUpdateStock('${ingredientId}', -1)" title="Restar 1">
                         <i data-lucide="minus" style="width:14px; height:14px;"></i>
                     </button>
-                    <button class="qty-btn" style="padding:7px 10px; margin-left:4px;" onclick="editInsumoMinimo('${i.id}', ${i.stock_minimo})" title="Editar mínimo">
+                    <button class="qty-btn" style="padding:7px 10px; margin-left:4px;" onclick="editInsumoMinimo('${ingredientId}', ${Number(i.stock_minimo) || 0})" title="Editar mínimo">
                         <i data-lucide="pencil" style="width:14px; height:14px;"></i>
                     </button>
-                    <button class="qty-btn" style="padding:7px 10px; margin-left:4px; color:var(--primary);" onclick="deleteInsumo('${i.id}')" title="Eliminar">
+                    <button class="qty-btn" style="padding:7px 10px; margin-left:4px; color:var(--primary);" onclick="deleteInsumo('${ingredientId}')" title="Eliminar">
                         <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
                     </button>
                 </td>
@@ -2418,7 +2380,7 @@ async function loadStockData() {
         }).join('') || '<tr><td colspan="5" style="text-align:center; padding:20px; color:#999;">Sin insumos cargados</td></tr>';
 
         const select = document.getElementById('stock-insumo-select');
-        if (select) select.innerHTML = '<option value="">Seleccionar insumo...</option>' + data.map(i => `<option value="${i.id}">${i.nombre} (${i.unidad})</option>`).join('');
+        if (select) select.innerHTML = '<option value="">Seleccionar insumo...</option>' + data.map(i => `<option value="${safeAdminId(i.id)}">${escapeAdminHtml(i.nombre)} (${escapeAdminHtml(i.unidad)})</option>`).join('');
 
         if (typeof lucide !== 'undefined') lucide.createIcons();
     } catch (err) { console.error("Stock Load Error:", err); }
@@ -2578,12 +2540,13 @@ function renderMarketingRow(item, rowType) {
     if (type === 'second_unit') beneficio = `${item.second_unit_percent}% en 2da`;
 
     const label = rowType === 'CUPÓN'
-        ? `<span style="color:var(--primary)">🎫 ${item.codigo}</span>`
-        : `⚡ ${item.nombre}`;
+        ? `<span style="color:var(--primary)">🎫 ${escapeAdminHtml(item.codigo)}</span>`
+        : `⚡ ${escapeAdminHtml(item.nombre)}`;
     const usos = rowType === 'CUPÓN'
         ? `${item.usos_actuales} / ${item.limite_usos}`
         : `${item.usos_totales || 0} / ${item.limite_usos || '∞'}`;
     const tableSource = rowType === 'CUPÓN' ? 'cupones' : 'promociones';
+    const offerId = safeAdminId(item.id);
 
     return `<tr>
         <td style="font-family:'Archivo Black'; font-size:1rem;">${label}</td>
@@ -2591,7 +2554,7 @@ function renderMarketingRow(item, rowType) {
         <td>${beneficio}</td>
         <td>${usos}</td>
         <td><span class="status-badge status-ok">ACTIVA</span></td>
-        <td><button class="qty-btn" onclick="deleteOffer('${item.id}', '${tableSource}')"><i data-lucide="trash-2" style="width:14px;"></i></button></td>
+        <td>${offerId ? `<button class="qty-btn" onclick="deleteOffer('${offerId}', '${tableSource}')"><i data-lucide="trash-2" style="width:14px;"></i></button>` : ''}</td>
     </tr>`;
 }
 
@@ -2626,8 +2589,10 @@ async function handleMarketingSubmit(e) {
 
 window.deleteOffer = async function (id, table) {
     if (!confirm("¿Eliminar esta oferta?")) return;
+    if (!['cupones', 'promociones'].includes(table) || !safeAdminId(id)) return;
     try {
-        await client.from(table).delete().eq('id', id);
+        const { error } = await client.from(table).delete().eq('id', id);
+        if (error) throw error;
         loadMarketingData();
     } catch (err) { console.error(err); }
 };
@@ -2668,7 +2633,7 @@ async function loadCRMData() {
             const pedidosCount = clientPedidos.length;
 
             // Burger favorita
-            const burgerCounts = {};
+            const burgerCounts = new Map();
             let lastOrderDate = null;
             clientPedidos.forEach(p => {
                 if (p.created_at) {
@@ -2678,11 +2643,12 @@ async function loadCRMData() {
                 (p.items || []).forEach(i => {
                     const t = (i.type || '').toLowerCase();
                     if (t === 'simple' || t === 'doble') {
-                        burgerCounts[i.title] = (burgerCounts[i.title] || 0) + (parseInt(i.qty) || 1);
+                        const title = String(i.title || '');
+                        burgerCounts.set(title, (burgerCounts.get(title) || 0) + (parseInt(i.qty) || 1));
                     }
                 });
             });
-            const favBurger = Object.entries(burgerCounts).sort((a, b) => b[1] - a[1])[0];
+            const favBurger = [...burgerCounts.entries()].sort((a, b) => b[1] - a[1])[0];
 
             return {
                 ...c,
@@ -2692,7 +2658,7 @@ async function loadCRMData() {
                 _lastOrder: lastOrderDate,
                 _favBurger: favBurger ? favBurger[0] : null,
                 _favBurgerQty: favBurger ? favBurger[1] : 0,
-                _burgerNames: Object.keys(burgerCounts)
+                _burgerNames: [...burgerCounts.keys()]
             };
         });
 
@@ -2719,7 +2685,7 @@ async function loadCRMData() {
         if (burgerSelect) {
             const current = burgerSelect.value;
             burgerSelect.innerHTML = '<option value="">Todas las burgers</option>' +
-                [...allBurgerNames].sort().map(b => `<option value="${b}">${b}</option>`).join('');
+                [...allBurgerNames].sort().map(b => `<option value="${escapeAdminHtml(b)}">${escapeAdminHtml(b)}</option>`).join('');
             burgerSelect.value = current;
         }
 
@@ -2747,22 +2713,21 @@ function renderCRMTable(clientes) {
             ? new Date(c.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
             : '—';
         const nombre = c.nombre || 'S/N';
-        const safeNombre = nombre.replace(/'/g, "\\'");
-        const cid = c.id || '';
+        const cid = safeAdminId(c.id);
         return `<tr>
             <td style="font-family:'Archivo Black'; text-align:center;">${i + 1}</td>
-            <td style="font-weight:700;">${nombre}</td>
-            <td>${c.whatsapp || '—'}</td>
-            <td style="font-size:0.82rem;">${c.email || '—'}</td>
+            <td style="font-weight:700;">${escapeAdminHtml(nombre)}</td>
+            <td>${escapeAdminHtml(c.whatsapp || '—')}</td>
+            <td style="font-size:0.82rem;">${escapeAdminHtml(c.email || '—')}</td>
             <td style="font-weight:900; text-align:center;">${c._pedidos}</td>
             <td style="font-weight:900; font-family:'Archivo Black';">$${c._total.toLocaleString()}</td>
-            <td style="font-size:0.78rem;">${c._favBurger ? `🍔 ${c._favBurger}` : '—'}</td>
+            <td style="font-size:0.78rem;">${c._favBurger ? `🍔 ${escapeAdminHtml(c._favBurger)}` : '—'}</td>
             <td style="font-size:0.78rem;">${alta}</td>
             <td style="font-size:0.82rem;">${lastOrder}</td>
             <td>
-                <button class="qty-btn" style="font-size:0.7rem; padding:6px 14px;" onclick="openCustomerProfile('${cid}','${safeNombre}','${c.whatsapp || ''}','${c.email || ''}')">
+                ${cid ? `<button class="qty-btn" style="font-size:0.7rem; padding:6px 14px;" onclick="openCustomerProfileById('${cid}')">
                     <i data-lucide="eye" style="width:14px; height:14px; vertical-align:middle;"></i> VER
-                </button>
+                </button>` : ''}
             </td>
         </tr>`;
     }).join('');
@@ -2861,16 +2826,16 @@ async function printTicketWithQZ(order, metodoPagoOverride) {
 // ── MODO BROWSER (ventana emergente + window.print) ──
 function printTicketBrowser(order, metodoPagoOverride) {
     const html = buildReceiptHTML(order, metodoPagoOverride);
-    const win = window.open('', '_blank', 'width=360,height=720,toolbar=0,menubar=0,scrollbars=1,status=0,resizable=1');
+    const win = window.open('about:blank', '_blank', 'width=360,height=720,toolbar=0,menubar=0,scrollbars=1,status=0,resizable=1');
     if (!win) {
         showStatusToast('⚠ Habilitá los popups para imprimir tickets');
         return;
     }
+    win.opener = null;
     win.document.open();
     win.document.write(html);
     win.document.close();
-    win.onload = function () { setTimeout(() => { win.focus(); win.print(); }, 400); };
-    setTimeout(() => { if (win && !win.closed) { win.focus(); win.print(); } }, 1200);
+    setTimeout(() => { if (win && !win.closed) { win.focus(); win.print(); } }, 500);
 }
 
 // ── ESC/POS TICKET BUILDER ──
@@ -2975,16 +2940,17 @@ function buildESCPOSTicket(o, metodoPagoOverride) {
 
 // Construye el HTML del ticket para 80mm de papel térmico
 function buildReceiptHTML(o, metodoPagoOverride) {
+    const h = escapeAdminHtml;
     const d = new Date(o.created_at);
     const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
     const fecha = `${diasSemana[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} — ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 
-    const nombre = o.clientes?.nombre || 'Cliente S/N';
-    const tel = o.clientes?.whatsapp || o.clientes?.phone || '';
+    const nombre = h(o.clientes?.nombre || 'Cliente S/N');
+    const tel = h(o.clientes?.whatsapp || o.clientes?.phone || '');
     const esRetiro = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup';
-    const direccion = esRetiro ? '' : (o.direccion_entrega || '');
-    const timbre = esRetiro ? '' : (o.timbre || '');
-    const horarioEntrega = formatScheduledDelivery(o.entrega_programada);
+    const direccion = esRetiro ? '' : h(o.direccion_entrega || '');
+    const timbre = esRetiro ? '' : h(o.timbre || '');
+    const horarioEntrega = h(formatScheduledDelivery(o.entrega_programada));
 
     const metodoPagoLabels = {
         pendiente: 'Efectivo',
@@ -2994,20 +2960,20 @@ function buildReceiptHTML(o, metodoPagoOverride) {
         preparacion: 'Pago confirmado ✓',
         entregado: 'Pago confirmado ✓'
     };
-    const metodoPago = metodoPagoOverride || metodoPagoLabels[o.estado_pago] || 'Efectivo';
+    const metodoPago = h(metodoPagoOverride || metodoPagoLabels[o.estado_pago] || 'Efectivo');
 
     // Construir filas de items
     const itemsHtml = (o.items || []).map(i => {
         const qty = parseInt(i.qty) || 1;
         const precio = (i.pricePerUnit || 0) * qty;
-        const tipoStr = i.type ? ` <span style="font-weight:normal;font-size:9px;">(${i.type})</span>` : '';
+        const tipoStr = i.type ? ` <span style="font-weight:normal;font-size:9px;">(${h(i.type)})</span>` : '';
         const extrasStr = (i.extras && i.extras.length)
-            ? `<div style="padding-left:14px;font-size:9px;color:#444;">+ ${formatOrderExtras(i.extras, ' · ')}</div>`
+            ? `<div style="padding-left:14px;font-size:9px;color:#444;">+ ${h(formatOrderExtras(i.extras, ' · '))}</div>`
             : '';
         const precioStr = precio > 0 ? `$${precio.toLocaleString('es-AR')}` : '';
         return `<div style="margin-bottom:5px;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;gap:4px;">
-                <div style="flex:1;"><span style="font-weight:bold;">${qty}x ${i.title.toUpperCase()}${tipoStr}</span></div>
+                <div style="flex:1;"><span style="font-weight:bold;">${qty}x ${h(String(i.title || '').toUpperCase())}${tipoStr}</span></div>
                 <div style="font-weight:bold;white-space:nowrap;">${precioStr}</div>
             </div>
             ${extrasStr}
@@ -3016,7 +2982,7 @@ function buildReceiptHTML(o, metodoPagoOverride) {
 
     const notaHtml = o.nota
         ? `<hr style="border:none;border-top:1px dashed #000;margin:5px 0;">
-           <div style="font-size:9px;font-style:italic;color:#555;">📝 "${o.nota}"</div>`
+           <div style="font-size:9px;font-style:italic;color:#555;">NOTA: "${h(o.nota)}"</div>`
         : '';
 
     const contactoHtml = tel
@@ -3034,7 +3000,8 @@ function buildReceiptHTML(o, metodoPagoOverride) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
-<title>Ticket RIOH. #${o.numero_pedido || ''}</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Ticket RIOH. #${h(o.numero_pedido || '')}</title>
 <style>
   @page { size: 80mm auto; margin: 4mm 3mm; }
   @media print {
@@ -3057,11 +3024,6 @@ function buildReceiptHTML(o, metodoPagoOverride) {
 </head>
 <body>
 
-<!-- BOTÓN IMPRIMIR (solo en pantalla) -->
-<div class="no-print" style="text-align:center;padding:8px;background:#111;color:#fff;cursor:pointer;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;margin-bottom:8px;" onclick="window.print()">
-  🖨️ IMPRIMIR TICKET
-</div>
-
 <!-- CABECERA -->
 <div style="text-align:center;margin-bottom:4px;">
   <div style="font-family:'Arial Black',Arial,sans-serif;font-size:30px;font-weight:900;letter-spacing:4px;line-height:1;">RIOH.</div>
@@ -3071,7 +3033,7 @@ function buildReceiptHTML(o, metodoPagoOverride) {
 <hr class="dash">
 
 <div style="text-align:center;">
-  <div style="font-family:'Arial Black',Arial,sans-serif;font-size:15px;font-weight:900;">PEDIDO #${o.numero_pedido || '---'}</div>
+  <div style="font-family:'Arial Black',Arial,sans-serif;font-size:15px;font-weight:900;">PEDIDO #${h(o.numero_pedido || '---')}</div>
   <div style="font-size:10px;margin-top:1px;">${fecha}</div>
 </div>
 

@@ -4,15 +4,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow, noarchive">
     <title>RIOH. | CONTROL PANEL</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js" onerror="console.log('[QZ Tray] Librería no cargada')"></script>
+    <link rel="icon" href="favicon.png" type="image/png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="preload" href="fonts/archivo-black-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="fonts.css?v=20260812.1">
+    <script src="vendor/lucide.min.js" defer></script>
+    <script src="vendor/supabase.min.js" defer></script>
+    <script src="vendor/jspdf.umd.min.js" defer></script>
+    <script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
+    <script src="vendor/qz-tray.js" defer></script>
+    <script src="admin.js?v=20260812.3" defer></script>
     <style>
         :root {
             --primary: #E31C25;
@@ -24,6 +28,12 @@
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+            outline: 3px solid #ffeb3b;
+            outline-offset: 3px;
+            box-shadow: 0 0 0 5px #111;
+        }
 
         body {
             font-family: 'Inter', sans-serif;
@@ -1194,12 +1204,12 @@
             <div class="login-subtitle">Panel de Control</div>
 
             <div class="login-field">
-                <label>Email</label>
-                <input type="email" id="login-user" placeholder="admin@rioh.com" autocomplete="username" onkeydown="if(event.key==='Enter') doLogin()">
+                <label for="login-user">Email</label>
+                <input type="email" id="login-user" name="username" maxlength="254" placeholder="admin@rioh.com" autocomplete="username" onkeydown="if(event.key==='Enter') doLogin()">
             </div>
             <div class="login-field">
-                <label>Contraseña</label>
-                <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter') doLogin()">
+                <label for="login-pass">Contraseña</label>
+                <input type="password" id="login-pass" name="password" maxlength="128" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter') doLogin()">
             </div>
 
             <button class="login-btn" onclick="doLogin()">INGRESAR</button>
@@ -1213,7 +1223,7 @@
     <!-- ── MOBILE HEADER ── -->
     <div class="mobile-header">
         <span class="mobile-logo">RIOH.</span>
-        <button class="hamburger-btn" onclick="toggleMobileMenu()">
+        <button class="hamburger-btn" type="button" aria-label="Abrir menú" onclick="toggleMobileMenu()">
             <i data-lucide="menu" style="width:20px; height:20px;"></i>
         </button>
     </div>
@@ -1272,7 +1282,7 @@
                     <span class="slider"></span>
                 </label>
             </div>
-            <a href="/" class="nav-link" target="_blank" style="border-color: var(--primary); margin-bottom:0.5rem;">
+            <a href="/" class="nav-link" target="_blank" rel="noopener noreferrer" style="border-color: var(--primary); margin-bottom:0.5rem;">
                 <i data-lucide="external-link"></i> VER WEB
             </a>
             <a class="nav-link" style="color:#666; margin-top:0.5rem; cursor:pointer; font-size:0.8rem;" onclick="doLogout()">
@@ -2019,7 +2029,7 @@
                         <li>Volvé acá y hacé click en "REINTENTAR"</li>
                     </ol>
                     <div class="ticketera-btn-row" style="margin-top:16px;">
-                        <a href="https://qz.io/download/" target="_blank" class="ticketera-btn ticketera-btn-dark">⬇ DESCARGAR QZ TRAY</a>
+                        <a href="https://qz.io/download/" target="_blank" rel="noopener noreferrer" class="ticketera-btn ticketera-btn-dark">⬇ DESCARGAR QZ TRAY</a>
                         <button class="ticketera-btn ticketera-btn-red" onclick="retryQZConnect()">↺ REINTENTAR</button>
                     </div>
                     <div style="margin-top:14px; padding:10px; background:#fff3e0; border-left:3px solid #ff9800; font-size:0.78rem; line-height:1.6;">
@@ -2031,8 +2041,6 @@
         </div>
     </div>
 
-    <script src="admin.js?v=20260805.2"></script>
-    <script>lucide.createIcons();</script>
 </body>
 
 </html>

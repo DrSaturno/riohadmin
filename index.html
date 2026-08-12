@@ -6,29 +6,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RIOH. BURGERS | FAST FOOD PREMIUM</title>
     <meta name="description" content="Hamburguesas reales en Saavedra. Rioh Burgers: Sabor artesanal, vibra retro.">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@400;700;900&family=Syne:wght@800&display=swap"
-        rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260812.1">
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="icon" href="favicon.png" type="image/png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="preload" href="fondo01.jpg" as="image" media="(min-width: 769px)">
+    <link rel="preload" href="versionmobile.webp" as="image" type="image/webp" media="(max-width: 768px)">
+    <link rel="preload" href="fonts/archivo-black-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="fonts/outfit-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="fonts.css?v=20260812.1">
+    <link rel="stylesheet" href="style.css?v=20260812.3">
+    <script src="vendor/lucide.min.js" defer></script>
+    <script src="vendor/supabase.min.js" defer></script>
+    <script src="main.js?v=20260812.3" defer></script>
 </head>
 
 <body>
     <div id="loader">
         <div class="loader-logo">RIOH.</div>
     </div>
-
-    <script>
-        (function () {
-            var l = document.getElementById('loader');
-            function hide() { if (l) { l.style.opacity = '0'; setTimeout(function () { l.style.display = 'none'; }, 500); } }
-            window.addEventListener('load', hide);
-            setTimeout(hide, 1200);
-        })();
-    </script>
 
     <div class="marquee-container">
         <div class="marquee-content">
@@ -77,10 +71,10 @@
         <!-- Product Detail Modal -->
         <div id="product-modal" class="modal-overlay">
             <div class="modal-content">
-                <button class="close-modal"><i data-lucide="x"></i></button>
+                <button class="close-modal" type="button" aria-label="Cerrar detalle"><i data-lucide="x"></i></button>
                 <div class="modal-body-grid">
                     <div class="modal-img-side">
-                        <img id="modal-img" src="" alt="">
+                        <img id="modal-img" alt="Producto seleccionado">
                     </div>
                     <div class="modal-info-side">
                         <h2 id="modal-title"></h2>
@@ -147,9 +141,9 @@
 
                         <div class="modal-footer">
                             <div class="qty-selector">
-                                <button onclick="changeQty(-1)"><i data-lucide="minus"></i></button>
+                                <button type="button" aria-label="Quitar una unidad" onclick="changeQty(-1)"><i data-lucide="minus"></i></button>
                                 <span id="modal-qty">1</span>
-                                <button onclick="changeQty(1)"><i data-lucide="plus"></i></button>
+                                <button type="button" aria-label="Agregar una unidad" onclick="changeQty(1)"><i data-lucide="plus"></i></button>
                             </div>
                             <button id="add-to-cart-big" class="cart-btn">AGREGAR POR <span
                                     id="modal-total-price"></span></button>
@@ -184,7 +178,7 @@
         <!-- Auth Modal -->
         <div id="auth-modal" class="modal-overlay">
             <div class="modal-content auth-content">
-                <button class="close-modal" onclick="closeAuthModal()"><i data-lucide="x"></i></button>
+                <button class="close-modal" type="button" onclick="closeAuthModal()" aria-label="Cerrar acceso"><i data-lucide="x"></i></button>
                 <div class="auth-logo">RIOH.</div>
                 <p class="auth-subtitle" id="auth-subtitle">Tu cuenta para pedir más rápido</p>
 
@@ -195,12 +189,12 @@
 
                 <div id="auth-panel-login" class="auth-panel">
                     <div class="input-group">
-                        <label>EMAIL</label>
-                        <input type="email" id="login-email" placeholder="tu@email.com">
+                        <label for="login-email">EMAIL</label>
+                        <input type="email" id="login-email" name="email" autocomplete="email" maxlength="254" placeholder="tu@email.com">
                     </div>
                     <div class="input-group">
-                        <label>CONTRASEÑA</label>
-                        <input type="password" id="login-pass" placeholder="••••••••">
+                        <label for="login-pass">CONTRASEÑA</label>
+                        <input type="password" id="login-pass" name="password" autocomplete="current-password" minlength="6" maxlength="128" placeholder="••••••••">
                     </div>
                     <div id="auth-error-login" class="auth-msg"></div>
                     <button class="auth-submit-btn" onclick="doLogin()">INGRESAR</button>
@@ -210,24 +204,37 @@
                 <div id="auth-panel-register" class="auth-panel" style="display:none">
                     <div class="form-row">
                         <div class="input-group">
-                            <label>NOMBRE</label>
-                            <input type="text" id="reg-nombre" placeholder="Tu nombre">
+                            <label for="reg-nombre">NOMBRE</label>
+                            <input type="text" id="reg-nombre" name="name" autocomplete="name" maxlength="100" placeholder="Tu nombre">
                         </div>
                         <div class="input-group">
-                            <label>WHATSAPP</label>
-                            <input type="tel" id="reg-whatsapp" placeholder="11 1234 5678">
+                            <label for="reg-whatsapp">WHATSAPP</label>
+                            <input type="tel" id="reg-whatsapp" name="tel" autocomplete="tel" inputmode="tel" maxlength="30" placeholder="11 1234 5678">
                         </div>
                     </div>
                     <div class="input-group">
-                        <label>EMAIL</label>
-                        <input type="email" id="reg-email" placeholder="tu@email.com">
+                        <label for="reg-email">EMAIL</label>
+                        <input type="email" id="reg-email" name="email" autocomplete="email" maxlength="254" placeholder="tu@email.com">
                     </div>
                     <div class="input-group">
-                        <label>CONTRASEÑA</label>
-                        <input type="password" id="reg-pass" placeholder="Mínimo 6 caracteres">
+                        <label for="reg-pass">CONTRASEÑA</label>
+                        <input type="password" id="reg-pass" name="new-password" autocomplete="new-password" minlength="6" maxlength="128" placeholder="Mínimo 6 caracteres">
                     </div>
                     <div id="auth-error-register" class="auth-msg"></div>
                     <button class="auth-submit-btn" onclick="doRegister()">CREAR CUENTA</button>
+                </div>
+
+                <div id="auth-panel-recovery" class="auth-panel" style="display:none">
+                    <div class="input-group">
+                        <label for="recovery-pass">NUEVA CONTRASEÑA</label>
+                        <input type="password" id="recovery-pass" autocomplete="new-password" minlength="8" maxlength="128" placeholder="Mínimo 8 caracteres">
+                    </div>
+                    <div class="input-group">
+                        <label for="recovery-pass-confirm">REPETIR CONTRASEÑA</label>
+                        <input type="password" id="recovery-pass-confirm" autocomplete="new-password" minlength="8" maxlength="128" placeholder="Repetí la contraseña">
+                    </div>
+                    <div id="auth-error-recovery" class="auth-msg"></div>
+                    <button class="auth-submit-btn" onclick="doUpdatePassword()">GUARDAR CONTRASEÑA</button>
                 </div>
             </div>
         </div>
@@ -237,13 +244,13 @@
             <span>ORDENAR</span>
         </button>
 
-        <button id="scroll-top-btn" class="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})">
+        <button id="scroll-top-btn" class="scroll-top-btn" type="button" aria-label="Volver arriba" onclick="window.scrollTo({top:0,behavior:'smooth'})">
             <i data-lucide="arrow-up"></i>
         </button>
 
         <div id="order-bar" class="order-bar">
             <div class="container bar-flex">
-                <div class="bar-info" onclick="toggleCartModal()" style="cursor: pointer;">
+                <div class="bar-info" role="button" tabindex="0" aria-label="Abrir carrito" onclick="toggleCartModal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleCartModal()}">
                     <span id="bar-items-count">0 ITEMS</span>
                     <span class="bar-total" id="bar-total-price">$0</span>
                 </div>
@@ -255,7 +262,7 @@
         <!-- Checkout Form Modal -->
         <div id="checkout-modal" class="modal-overlay">
             <div class="modal-content checkout-content">
-                <button class="close-modal" onclick="closeCheckoutModal()"><i data-lucide="x"></i></button>
+                <button class="close-modal" type="button" onclick="closeCheckoutModal()" aria-label="Cerrar checkout"><i data-lucide="x"></i></button>
                 <div class="checkout-body">
                     <button type="button" class="modal-back-btn" onclick="backFromCheckout()">
                         <i data-lucide="arrow-left"></i> VOLVER AL CARRITO
@@ -267,18 +274,18 @@
                             <div class="checkout-form-side">
                                 <div class="form-row">
                                     <div class="input-group">
-                                        <label>NOMBRE COMPLETO</label>
-                                        <input type="text" id="cust-name" required placeholder="Tu nombre">
+                                        <label for="cust-name">NOMBRE COMPLETO</label>
+                                        <input type="text" id="cust-name" name="name" required minlength="2" maxlength="100" autocomplete="name" placeholder="Tu nombre">
                                     </div>
                                     <div class="input-group">
-                                        <label>WHATSAPP / TELEFONO</label>
-                                        <input type="tel" id="cust-phone" required placeholder="Ej: 11 1234 5678">
+                                        <label for="cust-phone">WHATSAPP / TELEFONO</label>
+                                        <input type="tel" id="cust-phone" name="tel" required minlength="8" maxlength="30" autocomplete="tel" inputmode="tel" placeholder="Ej: 11 1234 5678">
                                     </div>
                                 </div>
 
                                 <div class="input-group">
-                                    <label>EMAIL <span class="optional-label">(OPCIONAL)</span></label>
-                                    <input type="email" id="cust-email" placeholder="tu@email.com">
+                                    <label for="cust-email">EMAIL <span class="optional-label">(OPCIONAL)</span></label>
+                                    <input type="email" id="cust-email" name="email" maxlength="254" autocomplete="email" placeholder="tu@email.com">
                                 </div>
 
                                 <div class="delivery-toggle-group">
@@ -294,18 +301,18 @@
                                 <div id="address-section">
                                     <div class="form-row">
                                         <div class="input-group">
-                                            <label>DIRECCIÓN DE ENTREGA</label>
-                                            <input type="text" id="cust-address" placeholder="Calle y altura">
+                                            <label for="cust-address">DIRECCIÓN DE ENTREGA</label>
+                                            <input type="text" id="cust-address" name="street-address" maxlength="220" autocomplete="street-address" placeholder="Calle y altura">
                                         </div>
                                         <div class="input-group">
-                                            <label>TIMBRE / DEPTO.</label>
-                                            <input type="text" id="cust-doorbell"
+                                            <label for="cust-doorbell">TIMBRE / DEPTO.</label>
+                                            <input type="text" id="cust-doorbell" maxlength="80"
                                                 placeholder="Ej: 4° B, timbre 12">
                                         </div>
                                     </div>
                                     <div class="input-group">
-                                        <label>ZONA / ENVÍO</label>
-                                        <select id="shipping-zone" onchange="updateCheckoutPrices()">
+                                        <label for="shipping-zone">ZONA / ENVÍO</label>
+                                        <select id="shipping-zone">
                                             <option value="0" data-zone="saavedra">SAAVEDRA ($0)</option>
                                             <option value="0" data-zone="nunez">NUÑEZ ($0)</option>
                                             <option value="0" data-zone="belgrano">BELGRANO ($0)</option>
@@ -316,7 +323,7 @@
                                         </select>
                                     </div>
                                     <div class="input-group delivery-time-group" id="delivery-time-group">
-                                        <label>HORARIO DE ENTREGA</label>
+                                        <label for="delivery-time">HORARIO DE ENTREGA</label>
                                         <select id="delivery-time">
                                             <option value="">ELEGÍ UN HORARIO</option>
                                         </select>
@@ -330,8 +337,8 @@
                                 </div>
 
                                 <div class="input-group">
-                                    <label>NOTAS ADICIONALES</label>
-                                    <textarea id="cust-notes" rows="2"
+                                    <label for="cust-notes">NOTAS ADICIONALES</label>
+                                    <textarea id="cust-notes" rows="2" maxlength="500"
                                         placeholder="Aclaraciones de cocina o entrega..."></textarea>
                                 </div>
                             </div>
@@ -346,7 +353,8 @@
 
                                     <div class="coupon-group">
                                         <div class="input-group">
-                                            <input type="text" id="coupon-input" placeholder="CUPÓN">
+                                            <label class="sr-only" for="coupon-input">Cupón</label>
+                                            <input type="text" id="coupon-input" maxlength="40" autocomplete="off" placeholder="CUPÓN">
                                             <button type="button" onclick="applyCoupon()"
                                                 id="apply-coupon-btn">APLICAR</button>
                                         </div>
@@ -380,7 +388,7 @@
                                     <p>Alias para transferir:</p>
                                     <div class="alias-row">
                                         <span class="cash-alias">RIOH.BURGERS</span>
-                                        <button type="button" class="copy-alias-btn" onclick="copyAlias()" title="Copiar alias">
+                                        <button type="button" class="copy-alias-btn" onclick="copyAlias()" title="Copiar alias" aria-label="Copiar alias">
                                             <i data-lucide="copy"></i>
                                         </button>
                                     </div>
@@ -407,7 +415,7 @@
                 <div class="cart-header">
                     <h2>MI PEDIDO</h2>
                     <button class="clear-cart-btn" onclick="clearCart()">VACIAR CARRITO</button>
-                    <button class="close-modal" onclick="toggleCartModal()"><i data-lucide="x"></i></button>
+                    <button class="close-modal" type="button" onclick="toggleCartModal()" aria-label="Cerrar carrito"><i data-lucide="x"></i></button>
                 </div>
                 <div id="cart-items-list" class="cart-items-list">
                     <div class="empty-cart-msg">
@@ -453,7 +461,7 @@
                     </button>
                 </div>
                 <p class="confirmation-backup-note">
-                    Guardamos este comprobante en este dispositivo para que puedas volver a consultarlo.
+                    Guardamos este comprobante durante 24 horas en este dispositivo.
                 </p>
             </div>
         </div>
@@ -489,7 +497,7 @@
         <!-- Coverage Map Modal -->
         <div id="coverage-modal" class="modal-overlay">
             <div class="modal-content" style="max-width: 600px;">
-                <button class="close-modal" onclick="closeCoverageModal()"><i data-lucide="x"></i></button>
+                <button class="close-modal" type="button" onclick="closeCoverageModal()" aria-label="Cerrar cobertura"><i data-lucide="x"></i></button>
                 <div style="padding: 2.5rem; text-align: center;">
                     <h2 style="font-family: var(--font-heading); font-size: 2rem; margin-bottom: 2rem;">ZONAS DE
                         COBERTURA</h2>
@@ -531,7 +539,6 @@
         </div>
     </main>
 
-    <script src="main.js?v=20260805.4"></script>
 </body>
 
 </html>
