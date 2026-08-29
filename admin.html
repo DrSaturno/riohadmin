@@ -16,7 +16,7 @@
     <script src="jspdf.umd.min.js?v=20260812.5" defer></script>
     <script src="jspdf.plugin.autotable.min.js?v=20260812.5" defer></script>
     <script src="qz-tray.js?v=20260812.5" defer></script>
-    <script src="admin.js?v=20260812.3" defer></script>
+    <script src="admin.js?v=20260829.1" defer></script>
     <style>
         :root {
             --primary: #E31C25;
@@ -541,7 +541,7 @@
         /* ── PEDIDOS METRICS BAR ── */
         .pedidos-metrics {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
             gap: 0.8rem;
             margin-bottom: 1.2rem;
         }
@@ -810,6 +810,27 @@
         .kanban-card { cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; }
         .kanban-card:hover { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--text-dark); }
         .kanban-card:active { transform: translate(0,0); box-shadow: 2px 2px 0 var(--text-dark); }
+
+        .order-benefit-badge,
+        .recent-benefit-label {
+            display: inline-block;
+            margin-top: 5px;
+            padding: 4px 7px;
+            border: 2px solid var(--text-dark);
+            background: #FFD600;
+            color: var(--text-dark);
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 0.64rem;
+            line-height: 1.25;
+            text-transform: uppercase;
+        }
+
+        .order-item-removed {
+            margin-top: 3px;
+            color: #B71C1C;
+            font-size: 0.76rem;
+            font-weight: 900;
+        }
 
         /* ── CUSTOMER PROFILE MODAL ── */
         #customer-modal {
@@ -1346,6 +1367,11 @@
                     <div class="pm-value" id="pm-ticket">$0</div>
                     <div class="pm-sub" id="pm-ticket-sub">—</div>
                 </div>
+                <div class="pedido-metric">
+                    <h4>Cupones / Promos</h4>
+                    <div class="pm-value" id="pm-benefits">0</div>
+                    <div class="pm-sub" id="pm-benefits-sub">$0 descontados</div>
+                </div>
             </div>
 
             <!-- ACCIONES: WHATSAPP + PDF -->
@@ -1442,7 +1468,7 @@
                 </div>
             </div>
 
-            <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));">
                 <div class="stat-card">
                     <h3>Pedidos</h3>
                     <div class="value" id="stats-orders-count">0</div>
@@ -1462,6 +1488,11 @@
                     <h3>Ticket Promedio</h3>
                     <div class="value" id="stats-avg-ticket">$0</div>
                     <div style="font-size:0.72rem; color:#999; margin-top:4px;" id="stats-ticket-sub">—</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Cupones / Promos</h3>
+                    <div class="value" id="stats-benefits-count">0</div>
+                    <div style="font-size:0.72rem; color:#999; margin-top:4px;" id="stats-benefits-sub">$0 descontados</div>
                 </div>
             </div>
 
@@ -1962,6 +1993,11 @@
                 <div class="order-detail-section" style="border-bottom:none;">
                     <div class="order-detail-section-title">Pago</div>
                     <div id="od-pago" style="font-weight:700; font-size:0.9rem;">—</div>
+                </div>
+                <div class="order-detail-section" id="od-benefit-wrap" style="display:none; background:#FFF8D8; border-top:2px solid #111;">
+                    <div class="order-detail-section-title">Promoción aplicada</div>
+                    <div id="od-benefit-name" style="font-family:'Archivo Black'; font-size:0.9rem; color:#111;">—</div>
+                    <div id="od-benefit-amount" style="font-weight:900; color:#B71C1C; margin-top:4px;">—</div>
                 </div>
             </div>
             <div class="order-total-row">

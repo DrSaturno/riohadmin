@@ -34,6 +34,133 @@ ALTER TABLE public.pedidos
     ADD COLUMN IF NOT EXISTS estadisticas_contabilizadas boolean NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS beneficio_contabilizado boolean NOT NULL DEFAULT false;
 
+ALTER TABLE public.movimientos_stock_pedido
+    DROP CONSTRAINT IF EXISTS movimientos_stock_pedido_cantidad_check,
+    DROP CONSTRAINT IF EXISTS movimientos_stock_pedido_cantidad_no_cero_check;
+ALTER TABLE public.movimientos_stock_pedido
+    ADD CONSTRAINT movimientos_stock_pedido_cantidad_no_cero_check CHECK (cantidad <> 0);
+
+CREATE OR REPLACE FUNCTION public._compensar_ingredientes_quitados(
+    p_items jsonb,
+    p_signo integer,
+    p_pedido_id uuid DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_item jsonb;
+    v_producto public.productos%ROWTYPE;
+    v_receta_item jsonb;
+    v_item_qty integer;
+    v_es_doble boolean;
+    v_ingrediente_id uuid;
+    v_compensacion numeric;
+    v_actualizado uuid;
+BEGIN
+    -- Usa el mismo bloqueo transaccional que _aplicar_movimiento_stock para que
+    -- la compensacion previa nunca sea visible como stock real para otro pedido.
+    PERFORM pg_advisory_xact_lock(hashtext('rioh_inventory_movement'));
+
+    IF p_signo NOT IN (-1, 1) THEN
+        RAISE EXCEPTION 'Movimiento de compensacion invalido.';
+    END IF;
+
+    FOR v_item IN SELECT value FROM jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
+    LOOP
+        IF jsonb_typeof(coalesce(v_item->'removedIngredients', '[]'::jsonb)) <> 'array'
+           OR jsonb_array_length(coalesce(v_item->'removedIngredients', '[]'::jsonb)) = 0 THEN
+            CONTINUE;
+        END IF;
+
+        v_item_qty := greatest(1, coalesce((v_item->>'qty')::integer, 1));
+        v_es_doble := lower(coalesce(v_item->>'type', '')) = 'doble';
+        SELECT * INTO v_producto
+        FROM public.productos
+        WHERE id = (v_item->>'product_id')::uuid;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'No se pudo compensar un producto inexistente.';
+        END IF;
+
+        FOR v_receta_item IN
+            SELECT recipe_value
+            FROM jsonb_array_elements(
+                CASE
+                    WHEN jsonb_typeof(coalesce(v_producto.receta->'ingredientes', '[]'::jsonb)) = 'array'
+                        THEN coalesce(v_producto.receta->'ingredientes', '[]'::jsonb)
+                    ELSE '[]'::jsonb
+                END
+            ) AS recipe_entry(recipe_value)
+            WHERE EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(v_item->'removedIngredients') AS removed_entry(removed_name)
+                WHERE lower(trim(removed_name)) = lower(trim(coalesce(recipe_value->>'nombre', '')))
+            )
+        LOOP
+            v_ingrediente_id := (v_receta_item->>'ingrediente_id')::uuid;
+            v_compensacion := (v_receta_item->>'cantidad')::numeric
+                * CASE
+                    WHEN v_es_doble
+                        THEN coalesce(nullif(v_receta_item->>'doble_mult', '')::numeric, 1)
+                    ELSE 1
+                  END
+                * v_item_qty;
+
+            v_actualizado := NULL;
+            IF p_signo = -1 THEN
+                UPDATE public.insumos
+                SET stock_actual = stock_actual + v_compensacion
+                WHERE id = v_ingrediente_id
+                RETURNING id INTO v_actualizado;
+            ELSE
+                UPDATE public.insumos
+                SET stock_actual = stock_actual - v_compensacion
+                WHERE id = v_ingrediente_id
+                  AND stock_actual >= v_compensacion
+                RETURNING id INTO v_actualizado;
+            END IF;
+            IF v_actualizado IS NULL THEN
+                RAISE EXCEPTION 'No se pudo compensar el ingrediente %.', v_ingrediente_id;
+            END IF;
+
+            IF p_pedido_id IS NOT NULL AND p_signo = -1 THEN
+                INSERT INTO public.movimientos_stock_pedido
+                    (pedido_id, tipo, referencia_id, cantidad)
+                VALUES (p_pedido_id, 'insumo', v_ingrediente_id, -v_compensacion);
+            END IF;
+        END LOOP;
+    END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.validar_stock_carrito(p_items jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_error text;
+BEGIN
+    BEGIN
+        PERFORM public._compensar_ingredientes_quitados(p_items, -1, NULL);
+        PERFORM public._aplicar_movimiento_stock(p_items, -1, NULL);
+        RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = '__VALIDACION_OK__';
+    EXCEPTION
+        WHEN SQLSTATE 'P0002' THEN
+            RETURN jsonb_build_object('ok', true);
+        WHEN OTHERS THEN
+            GET STACKED DIAGNOSTICS v_error = MESSAGE_TEXT;
+            RETURN jsonb_build_object('ok', false, 'error', v_error);
+    END;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public._compensar_ingredientes_quitados(jsonb, integer, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.validar_stock_carrito(jsonb) FROM PUBLIC, anon, authenticated;
+
 CREATE UNIQUE INDEX IF NOT EXISTS pedidos_idempotency_key_uidx
     ON public.pedidos (idempotency_key)
     WHERE idempotency_key IS NOT NULL;
@@ -48,6 +175,14 @@ CREATE INDEX IF NOT EXISTS clientes_user_id_idx
 CREATE INDEX IF NOT EXISTS clientes_email_lower_idx
     ON public.clientes (lower(email))
     WHERE email IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS pedidos_cupon_id_idx
+    ON public.pedidos (cupon_id)
+    WHERE cupon_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS pedidos_promo_id_idx
+    ON public.pedidos (promo_id)
+    WHERE promo_id IS NOT NULL;
 
 UPDATE public.pedidos
 SET estadisticas_contabilizadas = (
@@ -238,10 +373,13 @@ DECLARE
     v_close integer;
     v_days integer[];
 BEGIN
-    SELECT coalesce((valor->>'online')::boolean, false)
-    INTO v_manual
-    FROM public.configuracion
-    WHERE id = 'ventas_web';
+    SELECT coalesce((
+        SELECT (valor->>'online')::boolean
+        FROM public.configuracion
+        WHERE id = 'ventas_web'
+        LIMIT 1
+    ), false)
+    INTO v_manual;
 
     IF coalesce(v_manual, false) THEN
         RETURN true;
@@ -285,6 +423,7 @@ SET search_path = ''
 AS $$
 DECLARE
     v_hours jsonb;
+    v_manual boolean := false;
     v_local timestamp;
     v_dow integer;
     v_minutes integer;
@@ -321,12 +460,17 @@ BEGIN
     SELECT array_agg(value::integer) INTO v_days
     FROM jsonb_array_elements_text(v_hours->'dias');
 
+    SELECT coalesce((valor->>'online')::boolean, false)
+    INTO v_manual
+    FROM public.configuracion
+    WHERE id = 'ventas_web';
+
     IF v_close > v_open THEN
-        RETURN v_dow = ANY(v_days) AND v_minutes BETWEEN v_open AND v_close;
+        RETURN (v_manual OR v_dow = ANY(v_days)) AND v_minutes BETWEEN v_open AND v_close;
     END IF;
 
     v_service_dow := CASE WHEN v_minutes <= v_close THEN (v_dow + 6) % 7 ELSE v_dow END;
-    RETURN v_service_dow = ANY(v_days)
+    RETURN (v_manual OR v_service_dow = ANY(v_days))
         AND (v_minutes >= v_open OR v_minutes <= v_close);
 END;
 $$;
@@ -355,6 +499,9 @@ DECLARE
     v_type_label text;
     v_extra_name text;
     v_extras jsonb;
+    v_removed_item jsonb;
+    v_removed_name text;
+    v_removed_ingredients jsonb;
     v_items jsonb := '[]'::jsonb;
     v_unit_price numeric;
     v_line_total numeric;
@@ -367,6 +514,7 @@ DECLARE
     v_coupon_id uuid;
     v_coupon_code text;
     v_promo_id uuid;
+    v_promo_name text;
     v_zone_key text;
     v_zone_label text;
 BEGIN
@@ -396,6 +544,7 @@ BEGIN
             p.nombre,
             p.precio_simple,
             p.precio_doble,
+            p.receta,
             p.activo,
             c.tipo_venta,
             c.activo AS categoria_activa
@@ -472,12 +621,63 @@ BEGIN
                 RAISE EXCEPTION 'El extra "%" no esta disponible.', v_extra_name;
             END IF;
 
+            IF translate(lower(v_extra_row.nombre_extra), 'áéíóúüñ', 'aeiouun') LIKE '%medallon%' THEN
+                IF v_type <> 'doble' THEN
+                    RAISE EXCEPTION 'El medallon extra solo se puede agregar a una hamburguesa doble.';
+                END IF;
+                IF v_extra_qty <> 1 THEN
+                    RAISE EXCEPTION 'Solo se puede agregar un medallon extra.';
+                END IF;
+            END IF;
+
             v_unit_price := v_unit_price + v_extra_row.precio * v_extra_qty;
             v_extras := v_extras || jsonb_build_array(jsonb_build_object(
                 'name', v_extra_row.nombre_extra,
                 'qty', v_extra_qty,
                 'unitPrice', v_extra_row.precio
             ));
+        END LOOP;
+
+        v_removed_ingredients := '[]'::jsonb;
+        IF v_item ? 'removedIngredients'
+           AND jsonb_typeof(v_item->'removedIngredients') <> 'array' THEN
+            RAISE EXCEPTION 'Los ingredientes quitados de % no son validos.', v_product.nombre;
+        END IF;
+        IF jsonb_array_length(coalesce(v_item->'removedIngredients', '[]'::jsonb)) > 20 THEN
+            RAISE EXCEPTION 'Hay demasiados ingredientes quitados en un producto.';
+        END IF;
+
+        FOR v_removed_item IN
+            SELECT value FROM jsonb_array_elements(coalesce(v_item->'removedIngredients', '[]'::jsonb))
+        LOOP
+            IF v_product.tipo_venta <> 'configurable' OR jsonb_typeof(v_removed_item) <> 'string' THEN
+                RAISE EXCEPTION 'Los ingredientes quitados de % no son validos.', v_product.nombre;
+            END IF;
+
+            v_removed_name := trim(v_removed_item #>> '{}');
+            IF char_length(v_removed_name) NOT BETWEEN 1 AND 80 OR NOT EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(
+                    CASE
+                        WHEN jsonb_typeof(coalesce(v_product.receta->'ingredientes', '[]'::jsonb)) = 'array'
+                            THEN coalesce(v_product.receta->'ingredientes', '[]'::jsonb)
+                        ELSE '[]'::jsonb
+                    END
+                ) AS recipe_entry(recipe_value)
+                WHERE lower(trim(coalesce(recipe_value->>'nombre', ''))) = lower(v_removed_name)
+                  AND translate(lower(trim(coalesce(recipe_value->>'nombre', ''))), 'áéíóúüñ', 'aeiouun')
+                      !~ '(^|[[:space:]])pan([[:space:]]|$)|medallon|papa'
+            ) THEN
+                RAISE EXCEPTION 'El ingrediente "%" no pertenece a %.', v_removed_name, v_product.nombre;
+            END IF;
+
+            IF NOT EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(v_removed_ingredients) AS existing_entry(existing_name)
+                WHERE lower(existing_name) = lower(v_removed_name)
+            ) THEN
+                v_removed_ingredients := v_removed_ingredients || jsonb_build_array(v_removed_name);
+            END IF;
         END LOOP;
 
         v_line_total := round(v_unit_price * v_qty, 2);
@@ -488,6 +688,7 @@ BEGIN
             'type', v_type_label,
             'qty', v_qty,
             'extras', v_extras,
+            'removedIngredients', v_removed_ingredients,
             'pricePerUnit', round(v_unit_price, 2),
             'total', v_line_total
         ));
@@ -559,6 +760,7 @@ BEGIN
             IF v_candidate_discount > v_discount THEN
                 v_discount := v_candidate_discount;
                 v_promo_id := v_promo.id;
+                v_promo_name := v_promo.nombre;
             END IF;
         END LOOP;
     END IF;
@@ -575,6 +777,13 @@ BEGIN
         'couponId', v_coupon_id,
         'couponCode', v_coupon_code,
         'promoId', v_promo_id,
+        'promoName', v_promo_name,
+        'benefitType', CASE
+            WHEN v_coupon_id IS NOT NULL THEN 'coupon'
+            WHEN v_promo_id IS NOT NULL THEN 'promotion'
+            ELSE NULL
+        END,
+        'benefitLabel', coalesce(v_coupon_code, v_promo_name),
         'zoneKey', v_zone_key,
         'zoneLabel', v_zone_label
     );
@@ -718,6 +927,19 @@ AS $$
                     'imagen_url', p.imagen_url,
                     'destacado', p.destacado,
                     'orden', p.orden,
+                    'ingredientes_removibles', coalesce((
+                        SELECT jsonb_agg(recipe_item->>'nombre' ORDER BY recipe_item_order)
+                        FROM jsonb_array_elements(
+                            CASE
+                                WHEN jsonb_typeof(coalesce(p.receta->'ingredientes', '[]'::jsonb)) = 'array'
+                                    THEN coalesce(p.receta->'ingredientes', '[]'::jsonb)
+                                ELSE '[]'::jsonb
+                            END
+                        ) WITH ORDINALITY AS recipe(recipe_item, recipe_item_order)
+                        WHERE nullif(trim(recipe_item->>'nombre'), '') IS NOT NULL
+                          AND translate(lower(trim(recipe_item->>'nombre')), 'áéíóúüñ', 'aeiouun')
+                              !~ '(^|[[:space:]])pan([[:space:]]|$)|medallon|papa'
+                    ), '[]'::jsonb),
                     'max_simple', least(20, public._capacidad_producto_segura(p.receta, p.stock, false)),
                     'max_doble', CASE
                         WHEN coalesce(p.precio_doble, 0) > 0
@@ -779,6 +1001,18 @@ BEGIN
     ORDER BY created_at DESC
     LIMIT 1
     FOR UPDATE;
+
+    -- Si la persona primero compró como invitada, reutilizar ese perfil al
+    -- iniciar sesión en vez de chocar con la unicidad de WhatsApp.
+    IF NOT FOUND AND v_whatsapp IS NOT NULL THEN
+        SELECT * INTO v_cliente
+        FROM public.clientes
+        WHERE whatsapp = v_whatsapp
+          AND (user_id IS NULL OR user_id = v_uid)
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE;
+    END IF;
 
     IF FOUND THEN
         UPDATE public.clientes
@@ -896,6 +1130,23 @@ BEGIN
             'notes', v_existing.nota,
             'subtotal', v_existing.subtotal,
             'discount', v_existing.monto_descuento,
+            'benefitType', CASE
+                WHEN v_existing.cupon_id IS NOT NULL THEN 'coupon'
+                WHEN v_existing.promo_id IS NOT NULL THEN 'promotion'
+                ELSE NULL
+            END,
+            'benefitLabel', CASE
+                WHEN v_existing.cupon_id IS NOT NULL THEN (
+                    SELECT c.codigo FROM public.cupones c WHERE c.id = v_existing.cupon_id
+                )
+                WHEN v_existing.promo_id IS NOT NULL THEN (
+                    SELECT p.nombre FROM public.promociones p WHERE p.id = v_existing.promo_id
+                )
+                ELSE NULL
+            END,
+            'couponCode', CASE WHEN v_existing.cupon_id IS NOT NULL THEN (
+                SELECT c.codigo FROM public.cupones c WHERE c.id = v_existing.cupon_id
+            ) ELSE NULL END,
             'shipping', v_existing.costo_envio,
             'total', v_existing.total,
             'paymentMethod', CASE
@@ -947,7 +1198,9 @@ BEGIN
         END IF;
     ELSIF v_method = 'pickup' THEN
         v_address := 'Retiro en Local';
-        p_entrega_programada := NULL;
+        IF public._horario_entrega_valido(p_entrega_programada) IS NOT TRUE THEN
+            RAISE EXCEPTION 'El horario de retiro ya no esta disponible.';
+        END IF;
     ELSE
         RAISE EXCEPTION 'El metodo de entrega no es valido.';
     END IF;
@@ -989,7 +1242,7 @@ BEGIN
             timbre = CASE WHEN v_method = 'delivery' THEN v_doorbell ELSE timbre END
         WHERE id = v_client_id;
     ELSE
-        INSERT INTO public.clientes (
+        INSERT INTO public.clientes AS cliente_existente (
             user_id, nombre, whatsapp, email, direccion, timbre, pedidos_count, total_gastado
         ) VALUES (
             NULL,
@@ -1001,6 +1254,23 @@ BEGIN
             0,
             0
         )
+        ON CONFLICT (whatsapp) DO UPDATE
+        SET nombre = CASE
+                WHEN cliente_existente.user_id IS NULL THEN EXCLUDED.nombre
+                ELSE cliente_existente.nombre
+            END,
+            email = CASE
+                WHEN cliente_existente.user_id IS NULL THEN coalesce(EXCLUDED.email, cliente_existente.email)
+                ELSE cliente_existente.email
+            END,
+            direccion = CASE
+                WHEN cliente_existente.user_id IS NULL AND v_method = 'delivery' THEN EXCLUDED.direccion
+                ELSE cliente_existente.direccion
+            END,
+            timbre = CASE
+                WHEN cliente_existente.user_id IS NULL AND v_method = 'delivery' THEN EXCLUDED.timbre
+                ELSE cliente_existente.timbre
+            END
         RETURNING id INTO v_client_id;
     END IF;
 
@@ -1057,7 +1327,7 @@ BEGIN
         v_quote->>'zoneLabel',
         CASE WHEN v_method = 'delivery' THEN v_doorbell ELSE NULL END,
         v_note,
-        CASE WHEN v_method = 'delivery' THEN p_entrega_programada ELSE NULL END,
+        p_entrega_programada,
         (v_quote->>'subtotal')::numeric,
         (v_quote->>'discount')::numeric,
         (v_quote->>'shipping')::numeric,
@@ -1084,6 +1354,9 @@ BEGIN
         'notes', v_order.nota,
         'subtotal', v_order.subtotal,
         'discount', v_order.monto_descuento,
+        'benefitType', v_quote->>'benefitType',
+        'benefitLabel', v_quote->>'benefitLabel',
+        'couponCode', v_quote->>'couponCode',
         'shipping', v_order.costo_envio,
         'total', v_order.total,
         'paymentMethod', v_payment
@@ -1128,6 +1401,7 @@ BEGIN
 
     IF v_pedido.estado_pago IN ('pendiente', 'pendiente_efectivo', 'pendiente_transferencia')
        AND coalesce(v_pedido.stock_descontado, false) = false THEN
+        PERFORM public._compensar_ingredientes_quitados(v_pedido.items, -1, p_pedido_id);
         PERFORM public._aplicar_movimiento_stock(v_pedido.items, -1, p_pedido_id);
         v_desconto := true;
     END IF;

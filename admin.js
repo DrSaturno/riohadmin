@@ -33,17 +33,26 @@ async function initializeAdminAuth() {
 
 async function isAuthorizedAdmin(userId) {
     if (!client || !userId) return false;
-    const { data, error } = await client
-        .from('admin_usuarios')
-        .select('user_id')
-        .eq('user_id', userId)
-        .eq('activo', true)
-        .maybeSingle();
-    if (error) {
-        console.error('Admin authorization error:', error);
-        return false;
+
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const { data, error } = await client
+            .from('admin_usuarios')
+            .select('user_id')
+            .eq('user_id', userId)
+            .eq('activo', true)
+            .maybeSingle();
+
+        if (!error) return Boolean(data);
+
+        lastError = error;
+        if (attempt === 0) {
+            await new Promise(resolve => setTimeout(resolve, 400));
+        }
     }
-    return Boolean(data);
+
+    console.error('Admin authorization error:', lastError);
+    throw new Error('No se pudo verificar el acceso con Supabase. Revisá la conexión e intentá nuevamente.');
 }
 
 window.doLogin = async function () {
@@ -170,6 +179,109 @@ function formatOrderExtra(extra) {
 
 function formatOrderExtras(extras, separator = ', ') {
     return (extras || []).map(formatOrderExtra).filter(Boolean).join(separator);
+}
+
+function formatOrderRemovedIngredients(item, separator = ', ') {
+    return (item?.removedIngredients || [])
+        .map(name => String(name || '').trim())
+        .filter(Boolean)
+        .join(separator);
+}
+
+function normalizeOrderText(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+}
+
+function isMedallionExtra(extra) {
+    return normalizeOrderText(normalizeOrderExtra(extra).name).includes('medallon');
+}
+
+function getComandaSize(item) {
+    if (!item?.type) return '';
+    const basePatties = normalizeOrderText(item.type) === 'doble' ? 2 : 1;
+    const extraPatties = (item.extras || []).reduce((total, extra) => {
+        return total + (isMedallionExtra(extra) ? normalizeOrderExtra(extra).qty : 0);
+    }, 0);
+    const patties = basePatties + extraPatties;
+    return ({ 1: 'SIMPLE', 2: 'DOBLE', 3: 'TRIPLE', 4: 'CUADRUPLE' })[patties]
+        || `${patties} MEDALLONES`;
+}
+
+function getComandaProductName(item) {
+    const title = String(item?.title || 'ITEM').trim();
+    return (item?.type ? title.split(/\s+/)[0] : title).toUpperCase();
+}
+
+function getComandaExtraDetails(item) {
+    return (item?.extras || []).filter(extra => !isMedallionExtra(extra));
+}
+
+let orderBenefitCatalog = new Map();
+
+async function loadOrderBenefitCatalog() {
+    const [couponsResult, promosResult] = await Promise.all([
+        client.from('cupones').select('id, codigo'),
+        client.from('promociones').select('id, nombre')
+    ]);
+    if (couponsResult.error) throw couponsResult.error;
+    if (promosResult.error) throw promosResult.error;
+
+    const catalog = new Map();
+    (couponsResult.data || []).forEach(item => catalog.set(String(item.id), {
+        type: 'coupon',
+        typeLabel: 'CUPÓN',
+        label: item.codigo || 'SIN CÓDIGO'
+    }));
+    (promosResult.data || []).forEach(item => catalog.set(String(item.id), {
+        type: 'promotion',
+        typeLabel: 'PROMOCIÓN',
+        label: item.nombre || 'SIN NOMBRE'
+    }));
+    orderBenefitCatalog = catalog;
+    return catalog;
+}
+
+function getOrderBenefit(order) {
+    const referenceId = order?.cupon_id || order?.promo_id;
+    const catalogBenefit = referenceId ? orderBenefitCatalog.get(String(referenceId)) : null;
+    if (catalogBenefit) return { ...catalogBenefit, amount: Math.max(0, Number(order?.monto_descuento) || 0) };
+    if (Number(order?.monto_descuento) > 0) {
+        return { type: 'discount', typeLabel: 'DESCUENTO', label: 'DESCUENTO', amount: Number(order.monto_descuento) };
+    }
+    return null;
+}
+
+function orderBenefitText(order) {
+    const benefit = getOrderBenefit(order);
+    return benefit ? `${benefit.typeLabel}: ${benefit.label}` : '';
+}
+
+function summarizeOrderBenefits(orders) {
+    return (orders || []).reduce((summary, order) => {
+        if (order?.estado_pago === 'cancelado') return summary;
+        const benefit = getOrderBenefit(order);
+        if (!benefit) return summary;
+        summary.orders += 1;
+        summary.discount += benefit.amount;
+        if (benefit.type === 'coupon') summary.coupons += 1;
+        else if (benefit.type === 'promotion') summary.promotions += 1;
+        else summary.other += 1;
+        return summary;
+    }, { orders: 0, coupons: 0, promotions: 0, other: 0, discount: 0 });
+}
+
+function benefitMetricsText(summary) {
+    const parts = [
+        `${summary.coupons} ${summary.coupons === 1 ? 'cupón' : 'cupones'}`,
+        `${summary.promotions} ${summary.promotions === 1 ? 'promo' : 'promos'}`
+    ];
+    if (summary.other) parts.push(`${summary.other} ${summary.other === 1 ? 'otro' : 'otros'}`);
+    parts.push(`$${summary.discount.toLocaleString('es-AR')} descontados`);
+    return parts.join(' · ');
 }
 
 function formatScheduledDelivery(isoValue, fallback = 'A coordinar') {
@@ -360,8 +472,17 @@ window.testPrintQZ = function () {
         timbre: '4° B',
         entrega_programada: new Date(Date.now() + 45 * 60 * 1000).toISOString(),
         clientes: { nombre: 'Ticket de Prueba', whatsapp: '' },
-        items: [{ qty: 1, title: 'MALBEC RICH', type: 'Simple', extras: [{ name: 'Extra Bacon', qty: 2, unitPrice: 1500 }], pricePerUnit: 9999 }],
-        nota: 'Sin cebolla'
+        items: [{
+            qty: 1,
+            title: 'MALBEC RICH',
+            type: 'Doble',
+            extras: [
+                { name: 'Medallón Extra', qty: 1, unitPrice: 1500 },
+                { name: 'Extra Bacon', qty: 1, unitPrice: 1500 }
+            ],
+            pricePerUnit: 9999
+        }],
+        nota: 'Prueba de comanda'
     };
     printTicket(testOrder, 'Efectivo');
 };
@@ -1472,7 +1593,7 @@ async function loadOrders() {
 
         if (startDate) query = query.gte('created_at', startDate.toISOString());
 
-        const { data: orders, error } = await query;
+        const [{ data: orders, error }] = await Promise.all([query, loadOrderBenefitCatalog()]);
         if (error) throw error;
         renderKanban(orders || []);
     } catch (err) { console.error("Orders Load Error:", err); }
@@ -1513,12 +1634,20 @@ function renderKanban(orders) {
                 const extrasStr = (i.extras && i.extras.length)
                     ? ` <small style="color:var(--primary); font-weight:700;">+ ${escapeAdminHtml(formatOrderExtras(i.extras))}</small>`
                     : '';
-                return `<div>${Math.max(1, parseInt(i.qty) || 1)}x ${escapeAdminHtml(i.title)} <small style="color:#999;">(${escapeAdminHtml(i.type || '-')})</small>${extrasStr}</div>`;
+                const removedStr = formatOrderRemovedIngredients(i);
+                const removedHtml = removedStr
+                    ? `<small style="display:block; color:#B71C1C; font-weight:800;">SIN: ${escapeAdminHtml(removedStr)}</small>`
+                    : '';
+                return `<div>${Math.max(1, parseInt(i.qty) || 1)}x ${escapeAdminHtml(i.title)} <small style="color:#999;">(${escapeAdminHtml(i.type || '-')})</small>${extrasStr}${removedHtml}</div>`;
             }).join('');
             const entrega = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup'
                 ? '🏠 Retiro'
                 : `🛵 ${escapeAdminHtml(o.direccion_entrega || 'Delivery')}`;
             const horarioEntrega = escapeAdminHtml(formatScheduledDelivery(o.entrega_programada));
+            const benefitText = orderBenefitText(o);
+            const benefitBadge = benefitText
+                ? `<div class="order-benefit-badge">${escapeAdminHtml(benefitText)} · -$${Number(o.monto_descuento || 0).toLocaleString('es-AR')}</div>`
+                : '';
 
             const actionRow = orderId && estado !== 'entregado'
                 ? `<div class="card-actions">
@@ -1540,6 +1669,7 @@ function renderKanban(orders) {
                 <div style="font-size:0.75rem; color:#666; margin-top:2px;">${entrega}</div>
                 <div style="display:inline-block; margin-top:5px; padding:3px 6px; background:#FFF3CD; border:1px solid #111; font-family:'Archivo Black'; font-size:0.68rem;">⏰ ${horarioEntrega}</div>
                 <div class="kanban-items">${items}</div>
+                ${benefitBadge}
                 <div class="kanban-total">$${Number(o.total || 0).toLocaleString('es-AR')}</div>
                 <div onclick="event.stopPropagation()">${actionRow}</div>
             </div>`;
@@ -1627,6 +1757,7 @@ window.openOrderDetail = function (orderId) {
                 <div class="order-item-name">${escapeAdminHtml(i.title)}${extrasCost}</div>
                 ${i.type ? `<div class="order-item-type">${escapeAdminHtml(i.type)}</div>` : ''}
                 ${(i.extras && i.extras.length) ? `<div class="order-item-extras">+ ${escapeAdminHtml(formatOrderExtras(i.extras, ' · '))}</div>` : ''}
+                ${formatOrderRemovedIngredients(i) ? `<div class="order-item-removed">SIN: ${escapeAdminHtml(formatOrderRemovedIngredients(i, ' · '))}</div>` : ''}
             </div>
             <div class="order-item-price">$${(Number(i.pricePerUnit || 0) * (parseInt(i.qty) || 1)).toLocaleString('es-AR')}</div>
         </div>`;
@@ -1635,6 +1766,16 @@ window.openOrderDetail = function (orderId) {
 
     // Pago
     document.getElementById('od-pago').textContent = pagoLabels[o.estado_pago] || '—';
+
+    const benefit = getOrderBenefit(o);
+    const benefitWrap = document.getElementById('od-benefit-wrap');
+    if (benefitWrap) {
+        benefitWrap.style.display = benefit ? 'block' : 'none';
+        if (benefit) {
+            document.getElementById('od-benefit-name').textContent = `${benefit.typeLabel}: ${benefit.label}`;
+            document.getElementById('od-benefit-amount').textContent = `Descuento aplicado: -$${benefit.amount.toLocaleString('es-AR')}`;
+        }
+    }
 
     // Total
     document.getElementById('od-total').textContent = `$${(o.total || 0).toLocaleString()}`;
@@ -1692,6 +1833,7 @@ function updatePedidosMetrics(orders) {
     const confirmados = orders.filter(o => ['aprobado', 'preparacion', 'entregado'].includes(o.estado_pago));
     const facturado = confirmados.reduce((sum, o) => sum + (o.total || 0), 0);
     const ticket = confirmados.length > 0 ? Math.round(facturado / confirmados.length) : 0;
+    const benefitSummary = summarizeOrderBenefits(orders);
 
     // Actualizar DOM
     const el = id => document.getElementById(id);
@@ -1710,6 +1852,9 @@ function updatePedidosMetrics(orders) {
 
     el('pm-ticket').textContent = `$${ticket.toLocaleString()}`;
     el('pm-ticket-sub').textContent = confirmados.length > 0 ? `sobre ${confirmados.length} pedidos` : '—';
+
+    el('pm-benefits').textContent = benefitSummary.orders;
+    el('pm-benefits-sub').textContent = benefitMetricsText(benefitSummary);
 }
 
 // ── WHATSAPP SHARE ──
@@ -1720,6 +1865,7 @@ window.shareOrdersWhatsApp = function () {
     const confirmados = orders.filter(o => ['aprobado', 'preparacion', 'entregado'].includes(o.estado_pago));
     const facturado = confirmados.reduce((sum, o) => sum + (o.total || 0), 0);
     const ticket = confirmados.length > 0 ? Math.round(facturado / confirmados.length) : 0;
+    const benefitSummary = summarizeOrderBenefits(orders);
 
     let totalBurgers = 0;
     let detalleItems = Object.create(null);
@@ -1741,7 +1887,8 @@ window.shareOrdersWhatsApp = function () {
     msg += `• Pedidos totales: *${orders.length}*\n`;
     msg += `• Burgers vendidas: *${totalBurgers}*\n`;
     msg += `• Facturado: *$${facturado.toLocaleString()}*\n`;
-    msg += `• Ticket promedio: *$${ticket.toLocaleString()}*\n\n`;
+    msg += `• Ticket promedio: *$${ticket.toLocaleString()}*\n`;
+    msg += `• Beneficios: *${benefitSummary.orders}* (${benefitMetricsText(benefitSummary)})\n\n`;
 
     msg += `📋 *DETALLE DE ITEMS*\n`;
     Object.entries(detalleItems).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
@@ -2089,7 +2236,7 @@ async function loadDashboard() {
 
         if (startDate) query = query.gte('created_at', startDate.toISOString());
 
-        const { data: pedidos, error } = await query;
+        const [{ data: pedidos, error }] = await Promise.all([query, loadOrderBenefitCatalog()]);
         if (error) throw error;
 
         // ── MÉTRICAS: calcular todo desde los pedidos reales ──
@@ -2100,6 +2247,7 @@ async function loadDashboard() {
 
         const totalSales = confirmados.reduce((acc, p) => acc + (p.total || 0), 0);
         const avgTicket = confirmados.length > 0 ? Math.round(totalSales / confirmados.length) : 0;
+        const benefitSummary = summarizeOrderBenefits(pedidosVigentes);
 
         // Contar burgers y items
         let totalBurgers = 0;
@@ -2132,6 +2280,9 @@ async function loadDashboard() {
         document.getElementById('stats-avg-ticket').innerText = `$${avgTicket.toLocaleString()}`;
         document.getElementById('stats-ticket-sub').innerText = confirmados.length > 0 ? `sobre ${confirmados.length} confirmados` : '—';
 
+        document.getElementById('stats-benefits-count').innerText = benefitSummary.orders;
+        document.getElementById('stats-benefits-sub').innerText = `${benefitMetricsText(benefitSummary)} · ${labelSuffix}`;
+
         // ── Ranking Burgers con imágenes ──
         const sorted = [...itemCounts.entries()].sort((a, b) => b[1] - a[1]);
         document.getElementById('best-sellers-list').innerHTML = sorted.map(([name, qty], i) => {
@@ -2151,12 +2302,14 @@ async function loadDashboard() {
                 if (i.extras && i.extras.length) s += ` +${formatOrderExtras(i.extras)}`;
                 return s;
             }).join(', ');
+            const benefitText = orderBenefitText(p);
             return `<div style="border-bottom: 1px dashed #eee; padding: 10px 0;">
                 <div style="display:flex; justify-content:space-between;">
                     <strong>#${escapeAdminHtml(p.numero_pedido || 'S/N')}</strong>
                     <span style="font-weight:900;">$${Number(p.total || 0).toLocaleString('es-AR')}</span>
                 </div>
                 <div style="font-size:0.75rem; color:#555; margin-top:2px;">${escapeAdminHtml(itemsStr)}</div>
+                ${benefitText ? `<div class="recent-benefit-label">${escapeAdminHtml(benefitText)} · -$${Number(p.monto_descuento || 0).toLocaleString('es-AR')}</div>` : ''}
                 <small style="color:#888;">${escapeAdminHtml(new Date(p.created_at).toLocaleString('es-AR'))} · ${escapeAdminHtml(p.clientes?.nombre || 'S/N')}</small>
             </div>`;
         }).join('') || '<div style="color:#999; padding:20px;">SIN VENTAS</div>';
@@ -2543,18 +2696,19 @@ function renderMarketingRow(item, rowType) {
         ? `<span style="color:var(--primary)">🎫 ${escapeAdminHtml(item.codigo)}</span>`
         : `⚡ ${escapeAdminHtml(item.nombre)}`;
     const usos = rowType === 'CUPÓN'
-        ? `${item.usos_actuales} / ${item.limite_usos}`
+        ? `${item.usos_actuales || 0} / ${item.limite_usos || '∞'}`
         : `${item.usos_totales || 0} / ${item.limite_usos || '∞'}`;
     const tableSource = rowType === 'CUPÓN' ? 'cupones' : 'promociones';
     const offerId = safeAdminId(item.id);
+    const isActive = item.activo !== false;
 
     return `<tr>
         <td style="font-family:'Archivo Black'; font-size:1rem;">${label}</td>
         <td><small>${rowType}</small></td>
         <td>${beneficio}</td>
         <td>${usos}</td>
-        <td><span class="status-badge status-ok">ACTIVA</span></td>
-        <td>${offerId ? `<button class="qty-btn" onclick="deleteOffer('${offerId}', '${tableSource}')"><i data-lucide="trash-2" style="width:14px;"></i></button>` : ''}</td>
+        <td><span class="status-badge ${isActive ? 'status-ok' : 'status-critical'}">${isActive ? 'ACTIVA' : 'HISTÓRICA'}</span></td>
+        <td>${offerId && isActive ? `<button class="qty-btn" title="Desactivar oferta" onclick="deleteOffer('${offerId}', '${tableSource}')"><i data-lucide="power" style="width:14px;"></i></button>` : ''}</td>
     </tr>`;
 }
 
@@ -2588,11 +2742,22 @@ async function handleMarketingSubmit(e) {
 }
 
 window.deleteOffer = async function (id, table) {
-    if (!confirm("¿Eliminar esta oferta?")) return;
+    if (!confirm("¿Desactivar esta oferta? Si todavía no se usó, se eliminará.")) return;
     if (!['cupones', 'promociones'].includes(table) || !safeAdminId(id)) return;
     try {
-        const { error } = await client.from(table).delete().eq('id', id);
+        const referenceColumn = table === 'cupones' ? 'cupon_id' : 'promo_id';
+        const { count, error: countError } = await client
+            .from('pedidos')
+            .select('id', { count: 'exact', head: true })
+            .eq(referenceColumn, id);
+        if (countError) throw countError;
+
+        const operation = count > 0
+            ? client.from(table).update({ activo: false }).eq('id', id)
+            : client.from(table).delete().eq('id', id);
+        const { error } = await operation;
         if (error) throw error;
+        showStatusToast(count > 0 ? 'OFERTA DESACTIVADA · HISTORIAL CONSERVADO' : 'OFERTA SIN USOS ELIMINADA');
         loadMarketingData();
     } catch (err) { console.error(err); }
 };
@@ -2786,6 +2951,51 @@ window.filterCRMTable = function () {
 // 🖨️  TICKETERA — IMPRESIÓN DE TICKETS PARA IMPRESORA TÉRMICA
 // ══════════════════════════════════════════════════════════
 
+const APPROVED_TICKET_FORMAT_VERSION = '20260829.1';
+
+// Modelo único aprobado: lo consumen tanto QZ/ESC-POS como la impresión del navegador.
+function buildApprovedTicketLines(o) {
+    const esRetiro = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup';
+    const direccion = esRetiro ? 'RETIRO EN LOCAL' : (o.direccion_entrega || 'SIN DIRECCIÓN');
+    const timbre = esRetiro ? '' : String(o.timbre || '').trim();
+    const horario = formatScheduledDelivery(o.entrega_programada).replace(/\s*hs$/i, '');
+    const lines = [
+        { text: `NOM: ${o.clientes?.nombre || 'CLIENTE S/N'}` },
+        { text: `HOR: ${horario}` },
+        { text: `DIR: ${direccion}` }
+    ];
+
+    if (timbre) lines.push({ text: `T/D: ${timbre}` });
+    lines.push({ gap: true }, { text: 'PEDIDO:' }, { gap: true });
+
+    for (const item of (o.items || [])) {
+        const qty = Math.max(1, parseInt(item.qty) || 1);
+        lines.push({ text: `${qty} ${getComandaProductName(item)} ${getComandaSize(item)}` });
+        const extraDetails = getComandaExtraDetails(item);
+        if (extraDetails.length) {
+            lines.push({ text: `+ ${formatOrderExtras(extraDetails)}`, detail: true });
+        }
+        const removedIngredients = formatOrderRemovedIngredients(item);
+        if (removedIngredients) lines.push({ text: `SIN: ${removedIngredients}`, detail: true });
+    }
+
+    if (o.nota) lines.push({ gap: true }, { text: `OBS: ${o.nota}` });
+    const benefit = getOrderBenefit(o);
+    if (benefit) {
+        lines.push(
+            { gap: true },
+            { text: `${benefit.typeLabel}: ${benefit.label}` },
+            { text: `DTO: -$${benefit.amount.toLocaleString('es-AR')}` }
+        );
+    }
+    lines.push(
+        { gap: true },
+        { text: `TOTAL: $${Number(o.total || 0).toLocaleString('es-AR')}` },
+        { text: 'ALIAS: RIOH.BURGERS' }
+    );
+    return lines;
+}
+
 // Imprimir el pedido actualmente abierto en el modal
 window.printCurrentOrderTicket = function () {
     if (_currentModalOrder) printTicket(_currentModalOrder);
@@ -2842,98 +3052,48 @@ function printTicketBrowser(order, metodoPagoOverride) {
 function buildESCPOSTicket(o, metodoPagoOverride) {
     const E = '\x1B'; const G = '\x1D';
     const INIT        = E + '\x40';
-    const CENTER      = E + '\x61\x01';
     const LEFT        = E + '\x61\x00';
     const BOLD_ON     = E + '\x45\x01';
     const BOLD_OFF    = E + '\x45\x00';
-    const WIDE        = G + '\x21\x11';   // doble ancho + alto
+    const FONT_A      = E + '\x4D\x00';
+    const LARGE       = G + '\x21\x11';   // ESC/POS: doble ancho y alto, equivalente legible a la referencia de 50px
     const NORMAL      = G + '\x21\x00';   // tamaño normal
     const CUT         = G + '\x56\x41\x05'; // corte parcial + feed 5mm
     const FEED        = E + '\x64\x04';   // avance 4 líneas
 
-    const W = 42; // caracteres por línea (80mm papel, Font A)
-    const SEP1 = '-'.repeat(W);
-    const SEP2 = '='.repeat(W);
+    const W = 24; // Font A doble: usa el ancho completo del papel de 80mm sin deformar las letras
 
-    // Alinear columnas izq/der
-    function row(l, r) {
-        const sp = W - l.length - r.length;
-        return l + ' '.repeat(Math.max(1, sp)) + r;
-    }
-
-    // Sólo ASCII (compatibilidad universal de code pages)
     function safe(s) {
-        return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7E]/g, '');
+        return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, '');
     }
 
-    const d = new Date(o.created_at);
-    const DAYS = ['Dom','Lun','Mar','Mie','Jue','Vie','Sab'];
-    const fecha = `${DAYS[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    const nombre  = safe(o.clientes?.nombre || 'S/N').substring(0, 32);
-    const tel     = safe(o.clientes?.whatsapp || '');
-    const esRetiro = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup';
-    const dir     = safe(o.direccion_entrega || '').substring(0, 40);
-    const timbre  = safe(o.timbre || '').substring(0, 24);
-    const horario = safe(formatScheduledDelivery(o.entrega_programada));
-    const metodo  = safe(metodoPagoOverride || {
-        pendiente: 'Efectivo', pendiente_efectivo: 'Efectivo',
-        pendiente_transferencia: 'Transferencia', aprobado: 'Pago confirmado',
-        preparacion: 'Pago confirmado', entregado: 'Pago confirmado'
-    }[o.estado_pago] || 'Efectivo');
-
-    let t = '';
-    t += INIT;
-
-    // ── CABECERA ──
-    t += CENTER + WIDE + 'RIOH.\n' + NORMAL;
-    t += 'BURGER\n';
-    t += SEP2 + '\n';
-    t += BOLD_ON + `PEDIDO #${o.numero_pedido || '---'}\n` + BOLD_OFF;
-    t += fecha + '\n' + SEP1 + '\n';
-
-    // ── CLIENTE ──
-    t += LEFT + BOLD_ON + nombre + '\n' + BOLD_OFF;
-    if (tel) t += tel + '\n';
-
-    // ── ENTREGA ──
-    t += '\n' + BOLD_ON + (esRetiro ? 'RETIRO EN LOCAL' : 'DELIVERY') + '\n' + BOLD_OFF;
-    if (!esRetiro && dir) t += dir + '\n';
-    if (!esRetiro && timbre) t += `Timbre/Depto: ${timbre}\n`;
-    t += BOLD_ON + `HORARIO: ${horario}\n` + BOLD_OFF;
-
-    t += SEP2 + '\n';
-    t += BOLD_ON + 'PRODUCTOS:\n' + BOLD_OFF + '\n';
-
-    // ── ITEMS ──
-    for (const i of (o.items || [])) {
-        const qty = parseInt(i.qty) || 1;
-        const precio = (i.pricePerUnit || 0) * qty;
-        const title = safe(i.title.toUpperCase()).substring(0, 24);
-        const right = precio > 0 ? `$${precio.toLocaleString('es-AR')}` : '';
-        t += BOLD_ON + row(`${qty}x ${title}`, right) + '\n' + BOLD_OFF;
-        if (i.type) t += `   (${safe(i.type)})\n`;
-        if (i.extras?.length) t += `   +${safe(formatOrderExtras(i.extras)).substring(0, 36)}\n`;
+    function wrapLine(value) {
+        const words = safe(value).toUpperCase().split(/\s+/).filter(Boolean);
+        const lines = [];
+        let line = '';
+        for (const word of words) {
+            if (word.length > W) {
+                if (line) { lines.push(line); line = ''; }
+                for (let start = 0; start < word.length; start += W) lines.push(word.slice(start, start + W));
+                continue;
+            }
+            const candidate = line ? `${line} ${word}` : word;
+            if (candidate.length > W) {
+                if (line) lines.push(line);
+                line = word;
+            } else {
+                line = candidate;
+            }
+        }
+        if (line) lines.push(line);
+        return (lines.length ? lines : ['']).map(current => `${current}\n`).join('');
     }
 
-    // ── NOTA ──
-    if (o.nota) {
-        t += SEP1 + '\n';
-        t += `"${safe(o.nota).substring(0, 80)}"\n`;
+    let t = INIT + LEFT + FONT_A + LARGE + BOLD_ON;
+    for (const line of buildApprovedTicketLines(o)) {
+        t += line.gap ? '\n' : wrapLine(line.text);
     }
-
-    t += SEP1 + '\n';
-
-    // ── TOTAL ──
-    const totalStr = `$${(o.total || 0).toLocaleString('es-AR')}`;
-    t += BOLD_ON + row('TOTAL:', totalStr) + '\n' + BOLD_OFF;
-    t += metodo + '\n';
-
-    t += SEP2 + '\n';
-
-    // ── PIE ──
-    t += CENTER + BOLD_ON + '* GRACIAS POR TU PEDIDO! *\n' + BOLD_OFF;
-    t += 'riohburgers.com.ar\n';
-    t += FEED + CUT;
+    t += BOLD_OFF + NORMAL + FONT_A + FEED + CUT;
 
     return t;
 }
@@ -2941,59 +3101,10 @@ function buildESCPOSTicket(o, metodoPagoOverride) {
 // Construye el HTML del ticket para 80mm de papel térmico
 function buildReceiptHTML(o, metodoPagoOverride) {
     const h = escapeAdminHtml;
-    const d = new Date(o.created_at);
-    const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-    const fecha = `${diasSemana[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} — ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-
-    const nombre = h(o.clientes?.nombre || 'Cliente S/N');
-    const tel = h(o.clientes?.whatsapp || o.clientes?.phone || '');
-    const esRetiro = o.metodo_entrega === 'takeaway' || o.metodo_entrega === 'pickup';
-    const direccion = esRetiro ? '' : h(o.direccion_entrega || '');
-    const timbre = esRetiro ? '' : h(o.timbre || '');
-    const horarioEntrega = h(formatScheduledDelivery(o.entrega_programada));
-
-    const metodoPagoLabels = {
-        pendiente: 'Efectivo',
-        pendiente_efectivo: 'Efectivo',
-        pendiente_transferencia: 'Transferencia bancaria',
-        aprobado: 'Pago confirmado ✓',
-        preparacion: 'Pago confirmado ✓',
-        entregado: 'Pago confirmado ✓'
-    };
-    const metodoPago = h(metodoPagoOverride || metodoPagoLabels[o.estado_pago] || 'Efectivo');
-
-    // Construir filas de items
-    const itemsHtml = (o.items || []).map(i => {
-        const qty = parseInt(i.qty) || 1;
-        const precio = (i.pricePerUnit || 0) * qty;
-        const tipoStr = i.type ? ` <span style="font-weight:normal;font-size:9px;">(${h(i.type)})</span>` : '';
-        const extrasStr = (i.extras && i.extras.length)
-            ? `<div style="padding-left:14px;font-size:9px;color:#444;">+ ${h(formatOrderExtras(i.extras, ' · '))}</div>`
-            : '';
-        const precioStr = precio > 0 ? `$${precio.toLocaleString('es-AR')}` : '';
-        return `<div style="margin-bottom:5px;">
-            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:4px;">
-                <div style="flex:1;"><span style="font-weight:bold;">${qty}x ${h(String(i.title || '').toUpperCase())}${tipoStr}</span></div>
-                <div style="font-weight:bold;white-space:nowrap;">${precioStr}</div>
-            </div>
-            ${extrasStr}
-        </div>`;
+    const ticketLinesHtml = buildApprovedTicketLines(o).map(line => {
+        if (line.gap) return '<div class="ticket-gap" aria-hidden="true"></div>';
+        return `<div class="ticket-line${line.detail ? ' ticket-detail' : ''}">${h(String(line.text).toUpperCase())}</div>`;
     }).join('');
-
-    const notaHtml = o.nota
-        ? `<hr style="border:none;border-top:1px dashed #000;margin:5px 0;">
-           <div style="font-size:9px;font-style:italic;color:#555;">NOTA: "${h(o.nota)}"</div>`
-        : '';
-
-    const contactoHtml = tel
-        ? `<div style="font-size:9px;">📱 ${tel}</div>`
-        : '';
-    const direccionHtml = direccion
-        ? `<div style="font-size:9px;margin-top:2px;">${direccion}</div>`
-        : '';
-    const timbreHtml = timbre
-        ? `<div style="font-size:9px;margin-top:2px;">Timbre/Depto: ${timbre}</div>`
-        : '';
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -3003,85 +3114,40 @@ function buildReceiptHTML(o, metodoPagoOverride) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
 <title>Ticket RIOH. #${h(o.numero_pedido || '')}</title>
 <style>
-  @page { size: 80mm auto; margin: 4mm 3mm; }
+  @page { size: 80mm auto; margin: 0; }
   @media print {
-    body { width: 74mm !important; }
+    body { width: 80mm !important; }
     .no-print { display: none !important; }
   }
   * { margin:0; padding:0; box-sizing:border-box; }
   body {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 11px;
-    width: 74mm;
-    max-width: 340px;
+    width: 80mm;
     background: #fff;
     color: #000;
-    padding: 4px 0;
+    overflow: hidden;
   }
-  hr.dash  { border:none; border-top:1px dashed #000; margin:5px 0; }
-  hr.solid { border:none; border-top:2px solid #000; margin:6px 0; }
+  .ticket-sheet {
+    width: 720px;
+    padding: 38px 40px 46px;
+    font-family: Arial, Helvetica, sans-serif;
+    zoom: .42;
+  }
+  .ticket-line {
+    width: 100%;
+    font-size: 50px;
+    font-weight: 900;
+    line-height: 1.12;
+    letter-spacing: -.25px;
+    overflow-wrap: break-word;
+  }
+  .ticket-detail { padding-left: 24px; }
+  .ticket-gap { height: 34px; }
 </style>
 </head>
 <body>
-
-<!-- CABECERA -->
-<div style="text-align:center;margin-bottom:4px;">
-  <div style="font-family:'Arial Black',Arial,sans-serif;font-size:30px;font-weight:900;letter-spacing:4px;line-height:1;">RIOH.</div>
-  <div style="font-size:9px;letter-spacing:5px;margin-top:1px;">BURGER</div>
-</div>
-
-<hr class="dash">
-
-<div style="text-align:center;">
-  <div style="font-family:'Arial Black',Arial,sans-serif;font-size:15px;font-weight:900;">PEDIDO #${h(o.numero_pedido || '---')}</div>
-  <div style="font-size:10px;margin-top:1px;">${fecha}</div>
-</div>
-
-<hr class="dash">
-
-<!-- CLIENTE -->
-<div style="margin-bottom:4px;">
-  <div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#666;">Cliente</div>
-  <div style="font-weight:bold;font-size:12px;">${nombre}</div>
-  ${contactoHtml}
-</div>
-
-<!-- ENTREGA -->
-<div style="margin-bottom:2px;">
-  <div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#666;">Entrega</div>
-  <div style="font-weight:bold;font-size:12px;border:2px solid #000;display:inline-block;padding:1px 6px;margin-top:2px;">${esRetiro ? '🏠 RETIRO EN LOCAL' : '🛵 DELIVERY'}</div>
-  ${direccionHtml}
-  ${timbreHtml}
-  <div style="font-family:'Arial Black',Arial,sans-serif;font-size:12px;margin-top:4px;">⏰ ${horarioEntrega}</div>
-</div>
-
-<hr class="solid">
-
-<!-- PRODUCTOS -->
-<div style="font-family:'Arial Black',Arial,sans-serif;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;">Productos</div>
-
-${itemsHtml}
-
-${notaHtml}
-
-<hr class="dash">
-
-<!-- TOTAL -->
-<div style="display:flex;justify-content:space-between;align-items:center;font-family:'Arial Black',Arial,sans-serif;font-size:16px;font-weight:900;margin:3px 0;">
-  <span>TOTAL</span>
-  <span>$${(o.total || 0).toLocaleString('es-AR')}</span>
-</div>
-
-<div style="font-size:10px;margin-top:2px;">💳 ${metodoPago}</div>
-
-<hr class="solid">
-
-<!-- PIE -->
-<div style="text-align:center;font-size:10px;">
-  <div style="font-family:'Arial Black',Arial,sans-serif;font-size:11px;font-weight:900;">★ ¡GRACIAS POR TU PEDIDO! ★</div>
-  <div style="margin-top:2px;">riohburgers.com.ar</div>
-</div>
-
+<main class="ticket-sheet" data-ticket-format="${APPROVED_TICKET_FORMAT_VERSION}">
+${ticketLinesHtml}
+</main>
 </body>
 </html>`;
 }

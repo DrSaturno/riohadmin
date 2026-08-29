@@ -9,14 +9,14 @@
     <link rel="icon" href="favicon.png" type="image/png">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <link rel="preload" href="fondo01.jpg" as="image" media="(min-width: 769px)">
-    <link rel="preload" href="versionmobile.webp" as="image" type="image/webp" media="(max-width: 768px)">
+    <link rel="preload" href="DESIGN.jpg.jpeg" as="image" type="image/jpeg" media="(max-width: 868px)">
     <link rel="preload" href="archivo-black-latin.woff2?v=20260812.5" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="outfit-latin.woff2?v=20260812.5" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="fonts.css?v=20260812.5">
-    <link rel="stylesheet" href="style.css?v=20260812.3">
+    <link rel="stylesheet" href="style.css?v=20260829.1">
     <script src="lucide.min.js?v=20260812.5" defer></script>
     <script src="supabase.min.js?v=20260812.5" defer></script>
-    <script src="main.js?v=20260812.5" defer></script>
+    <script src="main.js?v=20260829.1" defer></script>
 </head>
 
 <body>
@@ -79,6 +79,7 @@
                     <div class="modal-info-side">
                         <h2 id="modal-title"></h2>
                         <p id="modal-desc"></p>
+                        <div class="fries-modal-callout"><i data-lucide="badge-check"></i> ESTA HAMBURGUESA INCLUYE PAPAS FRITAS</div>
 
                         <div class="custom-section">
                             <h4>TAMAÑO</h4>
@@ -88,6 +89,12 @@
                             </div>
                         </div>
 
+                        <div class="custom-section" id="removable-ingredients-section" hidden>
+                            <h4>¿QUERÉS SACARLE ALGO?</h4>
+                            <p class="custom-section-help">Marcá los ingredientes que no querés en tu hamburguesa.</p>
+                            <div class="removable-ingredients-list" id="removable-ingredients-list"></div>
+                        </div>
+
                         <div class="custom-section">
                             <h4>EXTRAS</h4>
                             <div class="extras-list">
@@ -95,6 +102,7 @@
                                     <div class="extra-item-copy">
                                         <strong>Medallón Extra</strong>
                                         <span>+$1.500 c/u</span>
+                                        <small class="extra-rule-note">Disponible al elegir hamburguesa doble</small>
                                     </div>
                                     <div class="extra-qty-control">
                                         <button type="button" class="extra-qty-btn" data-delta="-1"
@@ -322,18 +330,19 @@
                                             <option value="0" data-zone="vicente-lopez">VICENTE LOPEZ ($0)</option>
                                         </select>
                                     </div>
-                                    <div class="input-group delivery-time-group" id="delivery-time-group">
-                                        <label for="delivery-time">HORARIO DE ENTREGA</label>
-                                        <select id="delivery-time">
-                                            <option value="">ELEGÍ UN HORARIO</option>
-                                        </select>
-                                        <small id="delivery-time-help">Turnos cada 15 minutos, con 30 minutos de
-                                            preparación.</small>
-                                    </div>
                                     <button type="button" class="text-link" onclick="openCoverageModal()"
                                         style="background:none; border:none; color:var(--primary); font-family:var(--font-heading); font-size:0.7rem; cursor:pointer; text-decoration:underline; margin-top:5px;">
                                         VER MAPA DE COBERTURA
                                     </button>
+                                </div>
+
+                                <div class="input-group delivery-time-group" id="delivery-time-group">
+                                    <label for="delivery-time" id="delivery-time-label">HORARIO DE ENTREGA</label>
+                                    <select id="delivery-time">
+                                        <option value="">ELEGÍ UN HORARIO</option>
+                                    </select>
+                                    <small id="delivery-time-help">Turnos cada 15 minutos, con 30 minutos de
+                                        preparación.</small>
                                 </div>
 
                                 <div class="input-group">
@@ -358,12 +367,12 @@
                                             <button type="button" onclick="applyCoupon()"
                                                 id="apply-coupon-btn">APLICAR</button>
                                         </div>
-                                        <div id="coupon-message" class="coupon-msg"></div>
+                                        <div id="coupon-message" class="coupon-msg" aria-live="polite"></div>
                                     </div>
 
                                     <div class="summary-line discount" id="discount-row"
                                         style="display:none; color: var(--primary);">
-                                        <span>DESCUENTO</span> <span id="summary-discount">-$0</span>
+                                        <span id="summary-discount-label">DESCUENTO</span> <span id="summary-discount">-$0</span>
                                     </div>
 
                                     <div class="summary-line"><span>ENVÍO</span> <span id="summary-shipping">$0</span>

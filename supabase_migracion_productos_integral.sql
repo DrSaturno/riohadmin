@@ -225,10 +225,16 @@ CREATE TABLE IF NOT EXISTS public.movimientos_stock_pedido (
     pedido_id uuid NOT NULL REFERENCES public.pedidos(id) ON DELETE CASCADE,
     tipo text NOT NULL CHECK (tipo IN ('insumo', 'producto')),
     referencia_id uuid NOT NULL,
-    cantidad numeric NOT NULL CHECK (cantidad > 0),
+    cantidad numeric NOT NULL CHECK (cantidad <> 0),
     created_at timestamptz NOT NULL DEFAULT now(),
     restaurado_at timestamptz
 );
+
+ALTER TABLE public.movimientos_stock_pedido
+    DROP CONSTRAINT IF EXISTS movimientos_stock_pedido_cantidad_check,
+    DROP CONSTRAINT IF EXISTS movimientos_stock_pedido_cantidad_no_cero_check;
+ALTER TABLE public.movimientos_stock_pedido
+    ADD CONSTRAINT movimientos_stock_pedido_cantidad_no_cero_check CHECK (cantidad <> 0);
 
 CREATE INDEX IF NOT EXISTS movimientos_stock_pedido_activos_idx
     ON public.movimientos_stock_pedido (pedido_id, tipo, referencia_id)
@@ -583,6 +589,101 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public._compensar_ingredientes_quitados(
+    p_items jsonb,
+    p_signo integer,
+    p_pedido_id uuid DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_item jsonb;
+    v_producto public.productos%ROWTYPE;
+    v_receta_item jsonb;
+    v_item_qty integer;
+    v_es_doble boolean;
+    v_ingrediente_id uuid;
+    v_compensacion numeric;
+    v_actualizado uuid;
+BEGIN
+    -- Usa el mismo bloqueo transaccional que _aplicar_movimiento_stock para que
+    -- la compensacion previa nunca sea visible como stock real para otro pedido.
+    PERFORM pg_advisory_xact_lock(hashtext('rioh_inventory_movement'));
+
+    IF p_signo NOT IN (-1, 1) THEN
+        RAISE EXCEPTION 'Movimiento de compensacion invalido.';
+    END IF;
+
+    FOR v_item IN SELECT value FROM jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
+    LOOP
+        IF jsonb_typeof(coalesce(v_item->'removedIngredients', '[]'::jsonb)) <> 'array'
+           OR jsonb_array_length(coalesce(v_item->'removedIngredients', '[]'::jsonb)) = 0 THEN
+            CONTINUE;
+        END IF;
+
+        v_item_qty := greatest(1, coalesce((v_item->>'qty')::integer, 1));
+        v_es_doble := lower(coalesce(v_item->>'type', '')) = 'doble';
+        SELECT * INTO v_producto
+        FROM public.productos
+        WHERE id = (v_item->>'product_id')::uuid;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'No se pudo compensar un producto inexistente.';
+        END IF;
+
+        FOR v_receta_item IN
+            SELECT recipe_value
+            FROM jsonb_array_elements(
+                CASE
+                    WHEN jsonb_typeof(coalesce(v_producto.receta->'ingredientes', '[]'::jsonb)) = 'array'
+                        THEN coalesce(v_producto.receta->'ingredientes', '[]'::jsonb)
+                    ELSE '[]'::jsonb
+                END
+            ) AS recipe_entry(recipe_value)
+            WHERE EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(v_item->'removedIngredients') AS removed_entry(removed_name)
+                WHERE lower(trim(removed_name)) = lower(trim(coalesce(recipe_value->>'nombre', '')))
+            )
+        LOOP
+            v_ingrediente_id := (v_receta_item->>'ingrediente_id')::uuid;
+            v_compensacion := (v_receta_item->>'cantidad')::numeric
+                * CASE
+                    WHEN v_es_doble
+                        THEN coalesce(nullif(v_receta_item->>'doble_mult', '')::numeric, 1)
+                    ELSE 1
+                  END
+                * v_item_qty;
+
+            v_actualizado := NULL;
+            IF p_signo = -1 THEN
+                UPDATE public.insumos
+                SET stock_actual = stock_actual + v_compensacion
+                WHERE id = v_ingrediente_id
+                RETURNING id INTO v_actualizado;
+            ELSE
+                UPDATE public.insumos
+                SET stock_actual = stock_actual - v_compensacion
+                WHERE id = v_ingrediente_id
+                  AND stock_actual >= v_compensacion
+                RETURNING id INTO v_actualizado;
+            END IF;
+            IF v_actualizado IS NULL THEN
+                RAISE EXCEPTION 'No se pudo compensar el ingrediente %.', v_ingrediente_id;
+            END IF;
+
+            IF p_pedido_id IS NOT NULL AND p_signo = -1 THEN
+                INSERT INTO public.movimientos_stock_pedido
+                    (pedido_id, tipo, referencia_id, cantidad)
+                VALUES (p_pedido_id, 'insumo', v_ingrediente_id, -v_compensacion);
+            END IF;
+        END LOOP;
+    END LOOP;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public._restaurar_stock_pedido(
     p_pedido_id uuid,
     p_items_legacy jsonb
@@ -606,6 +707,7 @@ BEGIN
     IF NOT v_hay_movimientos THEN
         -- Compatibilidad con pedidos aprobados antes de instalar esta migracion.
         PERFORM public._aplicar_movimiento_stock(p_items_legacy, 1, NULL);
+        PERFORM public._compensar_ingredientes_quitados(p_items_legacy, 1, NULL);
         RETURN;
     END IF;
 
@@ -649,6 +751,7 @@ DECLARE
     v_error text;
 BEGIN
     BEGIN
+        PERFORM public._compensar_ingredientes_quitados(p_items, -1, NULL);
         PERFORM public._aplicar_movimiento_stock(p_items, -1, NULL);
         RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = '__VALIDACION_OK__';
     EXCEPTION
@@ -694,6 +797,7 @@ BEGIN
 
     IF v_pedido.estado_pago IN ('pendiente', 'pendiente_efectivo', 'pendiente_transferencia')
        AND coalesce(v_pedido.stock_descontado, false) = false THEN
+        PERFORM public._compensar_ingredientes_quitados(v_pedido.items, -1, p_pedido_id);
         PERFORM public._aplicar_movimiento_stock(v_pedido.items, -1, p_pedido_id);
         v_desconto := true;
     END IF;
@@ -818,6 +922,7 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public._aplicar_movimiento_stock(jsonb, integer, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._compensar_ingredientes_quitados(jsonb, integer, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._restaurar_stock_pedido(uuid, jsonb) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.validar_stock_carrito(jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.avanzar_pedido_seguro(uuid) FROM PUBLIC, anon;

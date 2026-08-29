@@ -606,6 +606,32 @@ body {
     line-height: 1.5;
 }
 
+.fries-included {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: fit-content;
+    margin: -1rem 0 1.4rem;
+    padding: 0.38rem 0.55rem;
+    border: 2px solid var(--text-dark);
+    background: #FFD600;
+    color: var(--text-dark);
+    font-family: var(--font-heading);
+    font-size: 0.7rem;
+    line-height: 1.1;
+}
+
+.fries-included svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.fries-included-featured {
+    margin: 0;
+    border-color: #FFD600;
+}
+
 .featured-pricing {
     display: flex;
     gap: 1.5rem;
@@ -890,6 +916,85 @@ body {
     margin-bottom: 1rem;
 }
 
+.fries-modal-callout {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    padding: 0.7rem 0.85rem;
+    border: 2px solid var(--text-dark);
+    background: #FFD600;
+    color: var(--text-dark);
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    line-height: 1.25;
+}
+
+.fries-modal-callout svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.custom-section-help {
+    margin: -0.55rem 0 0.8rem;
+    color: #666;
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+
+.removable-ingredients-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+}
+
+.ingredient-toggle {
+    position: relative;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.ingredient-toggle input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.ingredient-toggle span {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 44px;
+    padding: 0.55rem 0.65rem;
+    border: 2px solid #bbb;
+    background: white;
+    color: #333;
+    font-family: var(--font-heading);
+    font-size: 0.7rem;
+    line-height: 1.2;
+    text-transform: uppercase;
+    transition: var(--transition);
+}
+
+.ingredient-toggle span svg {
+    width: 17px;
+    height: 17px;
+    flex-shrink: 0;
+}
+
+.ingredient-toggle input:checked + span {
+    border-color: var(--primary);
+    background: #fff0f0;
+    color: var(--primary);
+    box-shadow: 3px 3px 0 var(--primary);
+}
+
+.ingredient-toggle input:focus-visible + span {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
+}
+
 .price-options-modal {
     display: flex;
     gap: 1rem;
@@ -933,6 +1038,13 @@ body {
     box-shadow: 3px 3px 0 var(--primary);
 }
 
+.extra-item.is-locked {
+    border-color: #bbb;
+    background: #f1f1f1;
+    box-shadow: none;
+    color: #777;
+}
+
 .extra-item-copy {
     display: flex;
     flex-direction: column;
@@ -950,16 +1062,26 @@ body {
     color: #666;
 }
 
+.extra-item-copy .extra-rule-note {
+    color: var(--primary);
+    font-size: 0.68rem;
+    line-height: 1.25;
+}
+
+.extra-item.is-locked .extra-rule-note {
+    color: #666;
+}
+
 .extra-qty-control {
     display: grid;
-    grid-template-columns: 34px 28px 34px;
+    grid-template-columns: 44px 30px 44px;
     align-items: center;
     flex-shrink: 0;
 }
 
 .extra-qty-btn {
-    width: 34px;
-    height: 34px;
+    width: 44px;
+    height: 44px;
     border: 2px solid var(--text-dark);
     background: var(--text-dark);
     color: #fff;
@@ -979,6 +1101,11 @@ body {
     text-align: center;
     font-family: var(--font-heading);
     font-size: 0.95rem;
+}
+
+.remove-item-btn:focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
 }
 
 .modal-cart-pill {
@@ -1142,8 +1269,8 @@ body {
 }
 
 .cart-qty-controls button {
-    width: 28px;
-    height: 28px;
+    width: 44px;
+    height: 44px;
     border: 1.5px solid var(--text-dark);
     background: white;
     display: flex;
@@ -1180,15 +1307,24 @@ body {
 .remove-item-btn {
     background: #FFEBEE;
     color: #D32F2F;
-    border: none;
-    width: 35px;
-    height: 35px;
-    border-radius: 50%;
+    border: 2px solid #D32F2F;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0.45rem 0.65rem;
     display: flex;
     justify-content: center;
     align-items: center;
     cursor: pointer;
     transition: var(--transition);
+    gap: 0.35rem;
+    font-family: var(--font-heading);
+    font-size: 0.62rem;
+    white-space: nowrap;
+}
+
+.remove-item-btn svg {
+    width: 17px;
+    height: 17px;
 }
 
 .remove-item-btn:hover {
@@ -3128,6 +3264,19 @@ footer {
     margin-top: 2px;
 }
 
+.confirmation-totals .confirmation-benefit {
+    margin: 0.2rem 0;
+    padding: 0.55rem 0.65rem;
+    border: 2px solid var(--text-dark);
+    background: #FFD600;
+    color: var(--text-dark);
+}
+
+.confirmation-totals .confirmation-benefit span,
+.confirmation-totals .confirmation-benefit b {
+    font-weight: 900;
+}
+
 .confirmation-divider {
     border-top: 1px dashed #777;
     margin: 1rem 0;
@@ -3215,7 +3364,7 @@ footer {
 /* MOBILE BACKGROUND IMAGES */
 @media (max-width: 868px) {
     .hero {
-        background-image: url('versionmobile.webp');
+        background-image: url('DESIGN.jpg.jpeg');
         background-size: cover;
         background-position: center center;
         min-height: 100svh;
@@ -3364,6 +3513,25 @@ footer {
         display: none;
     }
 
+    .removable-ingredients-list {
+        grid-template-columns: 1fr;
+    }
+
+    .fries-included {
+        grid-column: 1;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #8a6200;
+        font-size: 0.52rem;
+    }
+
+    .fries-included svg {
+        width: 12px;
+        height: 12px;
+    }
+
     .add-btn,
     .add-btn-featured {
         width: 42px;
@@ -3433,6 +3601,10 @@ footer {
         display: none;
     }
 
+    .fries-included-featured {
+        color: #FFD600;
+    }
+
     .featured-pricing {
         grid-column: 1;
         display: grid;
@@ -3446,7 +3618,7 @@ footer {
 
     .add-btn-featured {
         grid-column: 2;
-        grid-row: 1 / 3;
+        grid-row: 1 / 4;
     }
 
     .extra-card-img {
@@ -3536,20 +3708,20 @@ footer {
         width: auto;
         margin: 1rem -1.25rem 0;
         display: grid;
-        grid-template-columns: 118px minmax(0, 1fr);
+        grid-template-columns: 134px minmax(0, 1fr);
         gap: 0.65rem;
     }
 
     #product-modal .qty-selector {
-        width: 118px;
+        width: 134px;
         display: grid;
-        grid-template-columns: 36px 1fr 36px;
+        grid-template-columns: 44px 1fr 44px;
         align-items: center;
     }
 
     #product-modal .qty-selector button {
-        width: 36px;
-        height: 36px;
+        width: 44px;
+        height: 44px;
     }
 
     #product-modal .qty-selector span {
@@ -3654,8 +3826,8 @@ footer {
     }
 
     .cart-qty-controls button {
-        width: 32px;
-        height: 32px;
+        width: 44px;
+        height: 44px;
     }
 
     .cart-item-actions {
@@ -3671,8 +3843,9 @@ footer {
     }
 
     .remove-item-btn {
-        width: 34px;
-        height: 34px;
+        width: auto;
+        min-width: 44px;
+        min-height: 44px;
     }
 
     .cart-footer {

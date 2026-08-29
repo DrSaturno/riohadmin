@@ -8,7 +8,7 @@ Antes de reemplazar el sitio, abrir **Supabase > SQL Editor** y ejecutar complet
 
 `supabase_seguridad_checkout.sql`
 
-La migracion es idempotente y protege clientes, pedidos, cupones, promociones, inventario y configuracion. Tambien instala el checkout transaccional que calcula precios y descuentos en el servidor.
+La migracion es idempotente y protege clientes, pedidos, cupones, promociones, inventario y configuracion. Tambien instala el checkout transaccional que calcula precios y descuentos en el servidor, valida el medallon extra solo para hamburguesas dobles, registra ingredientes quitados sin consumirlos del stock, habilita horarios para retiro y conserva la trazabilidad de cupones/promociones.
 
 Si informa que falta la migracion base, ejecutar primero `supabase_migracion_productos_integral.sql` y luego volver a ejecutar `supabase_seguridad_checkout.sql`.
 
@@ -31,7 +31,10 @@ No subir ningun archivo SQL a `public_html`.
 3. Verificar que el stock se descuente al aprobar y se reintegre al retroceder o cancelar.
 4. Probar un cupon y confirmar que el total del panel coincida con el comprobante.
 5. Abrir `/admin`, iniciar sesion y revisar productos, pedidos, clientes, stock y horarios.
-6. Confirmar que el dominio use HTTPS antes de habilitar pedidos reales.
+6. Confirmar que el pedido con cupon o promocion quede resaltado en el detalle, las metricas y el ticket.
+7. Probar una hamburguesa doble con un medallon extra y otra con un ingrediente quitado.
+8. Verificar que RETIRO POR LOCAL obligue a elegir un horario y lo muestre en la comanda.
+9. Confirmar que el dominio use HTTPS antes de habilitar pedidos reales.
 
 El paquete usa una estructura plana: todos los archivos deben quedar directamente en `public_html`. Esto evita incompatibilidades con extractores que no conservan las carpetas internas del ZIP.
 
@@ -43,6 +46,6 @@ La impresion silenciosa con QZ Tray queda deshabilitada en produccion hasta conf
 
 El ZIP no contiene SQL, Git, temporales, respaldos ni archivos de desarrollo.
 
-**Generado:** 2026-08-12
+**Generado:** 2026-08-19
 
-**SHA-256:** `9E6433C2B75BD62D46DB4272FA9B1B720EA039E5DE7F3C444232BF63B584DE72`
+**SHA-256:** `25F03B71AB6301246DB8B5B840B25E6BE916CE7A523879A294AE9171E977874E`

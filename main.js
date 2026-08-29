@@ -147,6 +147,7 @@ function normalizeCategory(category) {
 }
 
 function getCategoryForProduct(product) {
+    if (!product) return null;
     return productCategories.find(category => category.slug === product.category) || null;
 }
 
@@ -169,6 +170,30 @@ function formatExtra(extra) {
 
 function formatExtras(extras) {
     return (extras || []).map(formatExtra).filter(Boolean);
+}
+
+function isMedallionExtraName(value) {
+    return normalizeSearchText(value).includes('medallon');
+}
+
+function getExtraQuantityLimit(extraName) {
+    return isMedallionExtraName(extraName) ? 1 : 2;
+}
+
+function formatRemovedIngredients(ingredients) {
+    return (ingredients || [])
+        .map(name => String(name || '').trim())
+        .filter(Boolean)
+        .map(name => `Sin ${name}`);
+}
+
+function formatCartItemDetails(item) {
+    return [
+        item?.type,
+        ...(item?.type ? ['Incluye papas fritas'] : []),
+        ...formatExtras(item?.extras),
+        ...formatRemovedIngredients(item?.removedIngredients)
+    ].filter(Boolean);
 }
 
 function readStoredJson(key) {
@@ -431,6 +456,9 @@ async function loadMenu({ silent = false } = {}) {
                 desc: product.descripcion || '',
                 img: optimizedLocalImage(imgUrl),
                 destacado: Boolean(product.destacado),
+                removableIngredients: [...new Set((Array.isArray(product.ingredientes_removibles)
+                    ? product.ingredientes_removibles
+                    : []).map(name => String(name || '').trim()).filter(Boolean))],
                 directStock: Math.max(0, Math.floor(Number(product.max_simple) || 0)),
                 maxSimple: Math.max(0, Math.floor(Number(product.max_simple) || 0)),
                 maxDoble: Math.max(0, Math.floor(Number(product.max_doble) || 0)),
@@ -497,6 +525,13 @@ function validateCartAvailability(items = cart) {
             if (normalizedType === 'doble' && product.doble <= 0) {
                 return { valid: false, message: `${product.title} no tiene opción doble disponible.` };
             }
+
+            const allowedIngredients = new Set((product.removableIngredients || []).map(normalizeSearchText));
+            for (const removedName of item.removedIngredients || []) {
+                if (!allowedIngredients.has(normalizeSearchText(removedName))) {
+                    return { valid: false, message: `No se puede quitar ${removedName || 'ese ingrediente'} de ${product.title}.` };
+                }
+            }
         }
 
         const type = directSale ? 'Simple' : item.type;
@@ -512,12 +547,19 @@ function validateCartAvailability(items = cart) {
             const extraQty = typeof extra === 'string' ? 1 : Math.max(1, parseInt(extra?.qty) || 1);
             const rule = findExtraRule(name);
             if (!rule) return { valid: false, message: `El extra ${name || ''} ya no está disponible.` };
+            if (isMedallionExtraName(name) && normalizeSearchText(type) !== 'doble') {
+                return { valid: false, message: 'El medallón extra se habilita únicamente para hamburguesas dobles.' };
+            }
+            if (extraQty > getExtraQuantityLimit(name)) {
+                return { valid: false, message: `La cantidad de ${rule.name} no es válida.` };
+            }
             const required = (extraRequirements.get(rule.normalizedName) || 0) + extraQty * qty;
             extraRequirements.set(rule.normalizedName, required);
             if (required > rule.maxQuantity) {
                 return { valid: false, message: `No hay stock suficiente de ${rule.name}.` };
             }
         }
+
     }
 
     return { valid: true, message: '' };
@@ -531,7 +573,10 @@ function serializeCartForServer(items = cart) {
         extras: (item.extras || []).map(extra => ({
             name: typeof extra === 'string' ? extra : String(extra?.name || ''),
             qty: typeof extra === 'string' ? 1 : Math.max(1, parseInt(extra?.qty) || 1)
-        }))
+        })),
+        removedIngredients: (item.removedIngredients || [])
+            .map(name => String(name || '').trim())
+            .filter(Boolean)
     }));
 }
 
@@ -548,6 +593,9 @@ function serverErrorMessage(error, fallback) {
     const message = String(error?.message || '').replace(/^.*?error:\s*/i, '').trim();
     if (error?.code === 'PGRST202' || /schema cache|crear_pedido_seguro|cotizar_pedido_seguro/i.test(message)) {
         return 'La tienda está en mantenimiento. Falta aplicar la migración de seguridad en Supabase.';
+    }
+    if (error?.code === '23505' || /duplicate key value|clientes_whatsapp_key/i.test(message)) {
+        return 'No pudimos actualizar tus datos de contacto. Recargá la página e intentá nuevamente.';
     }
     return message && message.length <= 240 ? message : fallback;
 }
@@ -593,7 +641,11 @@ function invalidateCheckoutState() {
 }
 
 function copyCart() {
-    return cart.map(item => ({ ...item, extras: (item.extras || []).map(extra => typeof extra === 'string' ? extra : { ...extra }) }));
+    return cart.map(item => ({
+        ...item,
+        extras: (item.extras || []).map(extra => typeof extra === 'string' ? extra : { ...extra }),
+        removedIngredients: [...(item.removedIngredients || [])]
+    }));
 }
 
 function maxAddableQuantity(product, type, extras = []) {
@@ -956,6 +1008,7 @@ function renderConfigurableCard(product, storeClosed) {
             <div class="item-content">
                 <h3>${escapeHtml(product.title)}</h3>
                 <p class="item-desc">${escapeHtml(product.desc)}</p>
+                <p class="fries-included"><i data-lucide="badge-check"></i> INCLUYE PAPAS FRITAS</p>
                 <button type="button" class="add-btn" ${disabled ? 'disabled' : `onclick="openProductModal('${product.id}')"`} ${disabledStyle}>
                     <i data-lucide="${icon}"></i> ${label}
                 </button>
@@ -979,6 +1032,7 @@ function renderFeaturedCard(product, storeClosed) {
                 <span class="featured-label">MÁS PEDIDO</span>
                 <h3>${escapeHtml(product.title)}</h3>
                 <p class="featured-desc">${escapeHtml(product.desc)}</p>
+                <p class="fries-included fries-included-featured"><i data-lucide="badge-check"></i> INCLUYE PAPAS FRITAS</p>
                 <div class="featured-pricing">
                     <span>Simple $${product.simple.toLocaleString('es-AR')}</span>
                     ${product.doble > 0 ? `<span>Doble $${product.doble.toLocaleString('es-AR')}</span>` : ''}
@@ -1053,10 +1107,15 @@ window.openProductModal = function (id) {
     const modalDesc = document.getElementById('modal-desc');
     const modalQty = document.getElementById('modal-qty');
 
-    if (modalImg) modalImg.src = currentProduct.img;
+    if (modalImg) {
+        modalImg.src = currentProduct.img;
+        modalImg.alt = currentProduct.title;
+    }
     if (modalTitle) modalTitle.innerText = currentProduct.title;
     if (modalDesc) modalDesc.innerText = currentProduct.desc;
     if (modalQty) modalQty.innerText = currentQty;
+
+    renderRemovableIngredients(currentProduct);
 
     document.querySelectorAll('.modal-pill').forEach(b => {
         b.classList.remove('active');
@@ -1087,6 +1146,7 @@ function getSelectedModalExtras() {
     document.querySelectorAll('#product-modal .extra-item').forEach(item => {
         const qty = parseInt(item.dataset.qty) || 0;
         if (qty <= 0) return;
+        if (isMedallionExtraName(item.dataset.name) && currentType !== 'Doble') return;
         extras.push({
             name: item.dataset.name,
             qty,
@@ -1096,7 +1156,36 @@ function getSelectedModalExtras() {
     return extras;
 }
 
-function buildConfiguredCartItem(product, type, qty, extras) {
+function getSelectedRemovedIngredients() {
+    return [...document.querySelectorAll('#removable-ingredients-list input[type="checkbox"]:checked')]
+        .map(input => String(input.value || '').trim())
+        .filter(Boolean);
+}
+
+function renderRemovableIngredients(product) {
+    const section = document.getElementById('removable-ingredients-section');
+    const list = document.getElementById('removable-ingredients-list');
+    if (!section || !list) return;
+    const ingredients = product?.removableIngredients || [];
+    section.hidden = ingredients.length === 0;
+    list.innerHTML = ingredients.map((name, index) => `
+        <label class="ingredient-toggle">
+            <input type="checkbox" value="${escapeHtml(name)}" id="remove-ingredient-${index}">
+            <span><i data-lucide="minus-circle"></i> SIN ${escapeHtml(name)}</span>
+        </label>`).join('');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function clearIneligibleMedallionExtras() {
+    if (currentType === 'Doble') return;
+    document.querySelectorAll('#product-modal .extra-item').forEach(item => {
+        if (!isMedallionExtraName(item.dataset.name)) return;
+        item.dataset.qty = '0';
+        item.classList.remove('active');
+    });
+}
+
+function buildConfiguredCartItem(product, type, qty, extras, removedIngredients) {
     const base = type === 'Doble' ? product.doble : product.simple;
     const extrasTotal = (extras || []).reduce((total, extra) => total + (Number(extra.unitPrice) || 0) * (parseInt(extra.qty) || 0), 0);
     const pricePerUnit = base + extrasTotal;
@@ -1107,6 +1196,7 @@ function buildConfiguredCartItem(product, type, qty, extras) {
         type,
         qty,
         extras,
+        removedIngredients,
         pricePerUnit,
         total: pricePerUnit * qty
     };
@@ -1123,7 +1213,10 @@ function initListeners() {
         btn.onclick = () => {
             if (!currentProduct || btn.disabled) return;
             const requestedType = btn.dataset.type;
-            const maxQty = maxAddableQuantity(currentProduct, requestedType, getSelectedModalExtras());
+            const requestedExtras = getSelectedModalExtras().filter(extra =>
+                requestedType === 'Doble' || !isMedallionExtraName(extra.name)
+            );
+            const maxQty = maxAddableQuantity(currentProduct, requestedType, requestedExtras);
             if (maxQty <= 0) {
                 showAlert('SIN STOCK', `No hay stock para preparar ${currentProduct.title} ${requestedType.toLowerCase()}.`);
                 return;
@@ -1131,6 +1224,7 @@ function initListeners() {
             document.querySelectorAll('.modal-pill').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             currentType = requestedType;
+            clearIneligibleMedallionExtras();
             currentQty = Math.min(currentQty, maxQty);
             updateModalAvailability();
         };
@@ -1140,9 +1234,10 @@ function initListeners() {
         btn.onclick = () => {
             const item = btn.closest('.extra-item');
             if (!item || !currentProduct) return;
+            if (isMedallionExtraName(item.dataset.name) && currentType !== 'Doble') return;
             const current = parseInt(item.dataset.qty) || 0;
             const delta = parseInt(btn.dataset.delta) || 0;
-            const next = Math.max(0, Math.min(2, current + delta));
+            const next = Math.max(0, Math.min(getExtraQuantityLimit(item.dataset.name), current + delta));
             item.dataset.qty = String(next);
             const maxQty = maxAddableQuantity(currentProduct, currentType, getSelectedModalExtras());
             if (maxQty < currentQty) {
@@ -1164,8 +1259,9 @@ function initListeners() {
             console.log("Adding to cart:", currentProduct.title);
 
             const extras = getSelectedModalExtras();
+            const removedIngredients = getSelectedRemovedIngredients();
             const candidate = copyCart();
-            candidate.push(buildConfiguredCartItem(currentProduct, currentType, currentQty, extras));
+            candidate.push(buildConfiguredCartItem(currentProduct, currentType, currentQty, extras, removedIngredients));
             const validation = validateCartAvailability(candidate);
             if (!validation.valid) {
                 showAlert('STOCK INSUFICIENTE', validation.message);
@@ -1317,6 +1413,7 @@ window.changeQty = (val) => {
 
 function updateModalAvailability() {
     if (!currentProduct) return;
+    clearIneligibleMedallionExtras();
     const extras = getSelectedModalExtras();
     const maxQty = maxAddableQuantity(currentProduct, currentType, extras);
     if (maxQty > 0 && currentQty > maxQty) currentQty = maxQty;
@@ -1324,7 +1421,8 @@ function updateModalAvailability() {
     document.querySelectorAll('#product-modal .modal-pill').forEach(button => {
         const type = button.dataset.type;
         const hasPrice = type !== 'Doble' || currentProduct.doble > 0;
-        const available = hasPrice && maxAddableQuantity(currentProduct, type, extras) > 0;
+        const typeExtras = extras.filter(extra => type === 'Doble' || !isMedallionExtraName(extra.name));
+        const available = hasPrice && maxAddableQuantity(currentProduct, type, typeExtras) > 0;
         button.style.display = hasPrice ? '' : 'none';
         button.disabled = !available;
         button.classList.toggle('unavailable', !available);
@@ -1332,12 +1430,17 @@ function updateModalAvailability() {
 
     document.querySelectorAll('#product-modal .extra-item').forEach(item => {
         const qty = parseInt(item.dataset.qty) || 0;
+        const lockedBySize = isMedallionExtraName(item.dataset.name) && currentType !== 'Doble';
         item.classList.toggle('active', qty > 0);
+        item.classList.toggle('is-locked', lockedBySize);
+        item.setAttribute('aria-disabled', String(lockedBySize));
         const value = item.querySelector('.extra-qty-value');
         if (value) value.textContent = String(qty);
         item.querySelectorAll('.extra-qty-btn').forEach(control => {
             const delta = parseInt(control.dataset.delta) || 0;
-            control.disabled = (delta < 0 && qty === 0) || (delta > 0 && qty >= 2);
+            control.disabled = lockedBySize
+                || (delta < 0 && qty === 0)
+                || (delta > 0 && qty >= getExtraQuantityLimit(item.dataset.name));
         });
     });
 
@@ -1450,7 +1553,7 @@ function renderCartItems() {
             <div class="cart-item">
                 <div class="cart-item-info">
                     <h4>${escapeHtml(item.title)}</h4>
-                    <span>${escapeHtml(item.type)}${(item.extras || []).length ? ' + ' + escapeHtml(formatExtras(item.extras).join(', ')) : ''}</span>
+                    <span>${escapeHtml(formatCartItemDetails(item).join(' · '))}</span>
                     <div class="cart-qty-controls">
                         <button type="button" aria-label="Quitar una unidad de ${escapeHtml(item.title)}" onclick="updateCartQty(${idx}, -1)"><i data-lucide="minus"></i></button>
                         <span>${item.qty}</span>
@@ -1459,7 +1562,10 @@ function renderCartItems() {
                 </div>
                 <div class="cart-item-actions">
                     <div class="cart-item-price">$${item.total.toLocaleString()}</div>
-                    <button class="remove-item-btn" type="button" aria-label="Eliminar ${escapeHtml(item.title)} del carrito" onclick="removeFromCart(${idx})"><i data-lucide="trash-2"></i></button>
+                    <button class="remove-item-btn" type="button" aria-label="Quitar ${escapeHtml(item.title)} del carrito" onclick="removeFromCart(${idx})">
+                        <i data-lucide="trash-2"></i>
+                        <span>QUITAR ITEM</span>
+                    </button>
                 </div>
             </div>
         `).join('');
@@ -1618,8 +1724,9 @@ function getSelectedZoneKey() {
     return zoneSelect?.options[zoneSelect.selectedIndex]?.dataset.zone || '';
 }
 
-function isDeliverySlotEnabled() {
-    return currentDeliveryMethod === 'delivery' && DELIVERY_ZONE_KEYS.has(getSelectedZoneKey());
+function isSchedulingSlotEnabled() {
+    return currentDeliveryMethod === 'pickup'
+        || (currentDeliveryMethod === 'delivery' && DELIVERY_ZONE_KEYS.has(getSelectedZoneKey()));
 }
 
 function buildDeliverySlots() {
@@ -1644,7 +1751,7 @@ function buildDeliverySlots() {
         serviceWeekday = (now.weekday + 6) % 7;
     }
 
-    if (!days.includes(serviceWeekday)) return slots;
+    if (!days.includes(serviceWeekday) && !isMasterOnline) return slots;
     const firstSlot = Math.ceil(openMinutes / DELIVERY_SLOT_MINUTES) * DELIVERY_SLOT_MINUTES;
     for (let minutes = firstSlot; minutes <= closeMinutes; minutes += DELIVERY_SLOT_MINUTES) {
         const dateOffset = Math.floor(minutes / (24 * 60));
@@ -1674,19 +1781,19 @@ function updateDeliveryTimeOptions() {
     const group = document.getElementById('delivery-time-group');
     const select = document.getElementById('delivery-time');
     const help = document.getElementById('delivery-time-help');
+    const label = document.getElementById('delivery-time-label');
     if (!group || !select || !help) return;
 
     const previousValue = select.value;
-    const enabled = isDeliverySlotEnabled();
+    const enabled = isSchedulingSlotEnabled();
+    if (label) label.textContent = currentDeliveryMethod === 'pickup' ? 'HORARIO DE RETIRO' : 'HORARIO DE ENTREGA';
     group.classList.toggle('is-disabled', !enabled);
     select.disabled = !enabled;
     select.required = enabled;
 
     if (!enabled) {
         select.innerHTML = '<option value="">HORARIO A COORDINAR</option>';
-        help.textContent = currentDeliveryMethod === 'pickup'
-            ? 'El horario de retiro se coordina con el local.'
-            : 'Para esta zona coordinamos el horario después de recibir el pedido.';
+        help.textContent = 'Para esta zona coordinamos el horario después de recibir el pedido.';
         return;
     }
 
@@ -1700,7 +1807,9 @@ function updateDeliveryTimeOptions() {
     select.innerHTML = '<option value="">ELEGÍ UN HORARIO</option>' +
         slots.map(slot => `<option value="${slot.value}">${slot.label}</option>`).join('');
     if (slots.some(slot => slot.value === previousValue)) select.value = previousValue;
-    help.textContent = `Turnos cada ${DELIVERY_SLOT_MINUTES} minutos, con ${DELIVERY_PREP_MINUTES} minutos de preparación.`;
+    help.textContent = currentDeliveryMethod === 'pickup'
+        ? `Elegí cuándo retirar. Turnos cada ${DELIVERY_SLOT_MINUTES} minutos, con ${DELIVERY_PREP_MINUTES} minutos de preparación.`
+        : `Turnos cada ${DELIVERY_SLOT_MINUTES} minutos, con ${DELIVERY_PREP_MINUTES} minutos de preparación.`;
 }
 
 function fillCheckoutProfile(profile, onlyEmpty = true) {
@@ -1759,8 +1868,7 @@ function renderOrderConfirmation(receipt) {
         : 'Tu pedido está registrado. Abonás en efectivo al recibirlo o retirarlo.';
 
     const itemsHtml = (receipt.items || []).map(item => {
-        const extras = formatExtras(item.extras);
-        const detail = [item.type, ...extras].filter(Boolean).join(' + ');
+        const detail = formatCartItemDetails(item).join(' · ');
         return `<div class="confirmation-item">
             <div>
                 <strong>${parseInt(item.qty) || 1}× ${escapeHtml(item.title)}</strong>
@@ -1771,11 +1879,16 @@ function renderOrderConfirmation(receipt) {
     }).join('');
 
     const deliveryTitle = receipt.deliveryMethod === 'pickup'
-        ? 'Retiro en local'
+        ? `Retiro en local · ${formatReceiptTime(receipt.deliveryAt)} hs`
         : `${receipt.zone || 'Delivery'} · ${formatReceiptTime(receipt.deliveryAt)} hs`;
     const deliveryDetail = receipt.deliveryMethod === 'pickup'
-        ? 'Coordiná el horario con el local.'
+        ? 'Retirá tu pedido en el horario elegido.'
         : [receipt.address, receipt.doorbell ? `Timbre/Depto: ${receipt.doorbell}` : ''].filter(Boolean).join(' · ');
+    const benefitLabel = receipt.benefitType === 'coupon'
+        ? `Cupón ${receipt.benefitLabel || receipt.couponCode || ''}`.trim()
+        : receipt.benefitType === 'promotion'
+            ? `Promoción ${receipt.benefitLabel || ''}`.trim()
+            : 'Descuento';
 
     summaryEl.innerHTML = `
         <div class="confirmation-items">${itemsHtml}</div>
@@ -1788,7 +1901,7 @@ function renderOrderConfirmation(receipt) {
         ${receipt.notes ? `<div class="confirmation-note"><span>NOTA</span><p>${escapeHtml(receipt.notes)}</p></div>` : ''}
         <div class="confirmation-totals">
             <div><span>Subtotal</span><b>$${Number(receipt.subtotal || 0).toLocaleString('es-AR')}</b></div>
-            ${receipt.discount > 0 ? `<div><span>Descuento</span><b>-$${Number(receipt.discount).toLocaleString('es-AR')}</b></div>` : ''}
+            ${receipt.discount > 0 ? `<div class="confirmation-benefit"><span>${escapeHtml(benefitLabel)}</span><b>-$${Number(receipt.discount).toLocaleString('es-AR')}</b></div>` : ''}
             <div><span>Envío</span><b>${receipt.shipping > 0 ? `$${Number(receipt.shipping).toLocaleString('es-AR')}` : 'GRATIS'}</b></div>
             <div class="confirmation-total"><span>TOTAL</span><b>$${Number(receipt.total || 0).toLocaleString('es-AR')}</b></div>
             <div><span>Pago</span><b>${escapeHtml(paymentLabel(receipt.paymentMethod))}</b></div>
@@ -1817,16 +1930,18 @@ window.closeConfirmationModal = function() {
     document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
-window.sendLastOrderWhatsApp = function() {
-    const receipt = getLastOrderReceipt();
-    if (!receipt) return;
+function buildOrderWhatsAppUrl(receipt) {
+    if (!receipt) return '';
     const itemLines = (receipt.items || []).map(item => {
-        const details = [item.type, ...formatExtras(item.extras)].filter(Boolean).join(' + ');
+        const details = formatCartItemDetails(item).join(' · ');
         return `• ${parseInt(item.qty) || 1}x ${item.title}${details ? ` (${details})` : ''} — $${Number(item.total || 0).toLocaleString('es-AR')}`;
     });
     const delivery = receipt.deliveryMethod === 'pickup'
-        ? 'Retiro en local - horario a coordinar'
+        ? `Retiro en local - ${formatReceiptTime(receipt.deliveryAt)} hs`
         : `${receipt.zone || 'Delivery'} - ${formatReceiptTime(receipt.deliveryAt)} hs\n${receipt.address || ''}${receipt.doorbell ? ` - Timbre/Depto: ${receipt.doorbell}` : ''}`;
+    const benefit = receipt.discount > 0
+        ? `${receipt.benefitType === 'coupon' ? 'Cupón' : receipt.benefitType === 'promotion' ? 'Promoción' : 'Descuento'}${receipt.benefitLabel ? ` ${receipt.benefitLabel}` : ''}: -$${Number(receipt.discount).toLocaleString('es-AR')}`
+        : '';
     const message = [
         `Hola RIOH. Quiero dejar registrado mi pedido #${receipt.numeroPedido || '---'}.`,
         '',
@@ -1834,10 +1949,17 @@ window.sendLastOrderWhatsApp = function() {
         '',
         `Entrega: ${delivery}`,
         receipt.notes ? `Nota: ${receipt.notes}` : '',
+        benefit,
         `Pago: ${paymentLabel(receipt.paymentMethod)}`,
         `Total: $${Number(receipt.total || 0).toLocaleString('es-AR')}`
     ].filter(Boolean).join('\n');
-    window.open(`https://wa.me/${RIOH_WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+    return `https://wa.me/${RIOH_WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+}
+
+window.sendLastOrderWhatsApp = function() {
+    const whatsappUrl = buildOrderWhatsAppUrl(getLastOrderReceipt());
+    if (!whatsappUrl) return;
+    window.open(whatsappUrl, '_blank', 'noopener');
 };
 
 window.openCheckoutModal = async function () {
@@ -1880,7 +2002,7 @@ window.updateCheckoutPrices = function (quote = null) {
     const itemsList = document.getElementById('checkout-items-list');
     if (itemsList) {
         itemsList.innerHTML = displayItems.map(item => {
-            const detail = [item.type, ...formatExtras(item.extras)].filter(Boolean).join(' + ');
+            const detail = formatCartItemDetails(item).join(' · ');
             return `
             <div class="checkout-item-row">
                 <div class="checkout-item-name">
@@ -1901,10 +2023,21 @@ window.updateCheckoutPrices = function (quote = null) {
 
     document.getElementById('summary-subtotal').innerText = `$${subtotal.toLocaleString('es-AR')}`;
     const discRow = document.getElementById('discount-row');
+    const discLabel = document.getElementById('summary-discount-label');
     if (discount > 0) {
         discRow.style.display = 'flex';
+        if (discLabel) {
+            discLabel.textContent = validQuote?.benefitType === 'coupon'
+                ? `CUPÓN ${validQuote.benefitLabel || validQuote.couponCode || ''}`.trim()
+                : validQuote?.benefitType === 'promotion'
+                    ? `PROMOCIÓN ${validQuote.benefitLabel || ''}`.trim()
+                    : 'DESCUENTO';
+        }
         document.getElementById('summary-discount').innerText = `-$${discount.toLocaleString('es-AR')}`;
-    } else discRow.style.display = 'none';
+    } else {
+        discRow.style.display = 'none';
+        if (discLabel) discLabel.textContent = 'DESCUENTO';
+    }
 
     const shipEl = document.getElementById('summary-shipping');
     if (shipEl) {
@@ -2004,10 +2137,14 @@ window.submitOrder = async function () {
             showAlert("FALTA LA DIRECCIÓN", "Ingresá la dirección de entrega para el delivery, o elegí retiro por el local.");
             return;
         }
-        if (isDeliverySlotEnabled() && !document.getElementById('delivery-time')?.value) {
+        if (isSchedulingSlotEnabled() && !document.getElementById('delivery-time')?.value) {
             showAlert("FALTA EL HORARIO", "Elegí un horario de entrega para continuar.");
             return;
         }
+    }
+    if (currentDeliveryMethod === 'pickup' && !document.getElementById('delivery-time')?.value) {
+        showAlert("FALTA EL HORARIO", "Elegí un horario de retiro para continuar.");
+        return;
     }
 
     const finalizarBtn = document.getElementById('finalizar-btn');
@@ -2038,7 +2175,7 @@ window.submitOrder = async function () {
             p_direccion: document.getElementById('cust-address')?.value?.trim() || '',
             p_timbre: document.getElementById('cust-doorbell')?.value?.trim() || null,
             p_nota: document.getElementById('cust-notes')?.value?.trim() || null,
-            p_entrega_programada: currentDeliveryMethod === 'delivery' && isDeliverySlotEnabled()
+            p_entrega_programada: isSchedulingSlotEnabled()
                 ? document.getElementById('delivery-time')?.value || null
                 : null,
             p_metodo_pago: selectedPayMethod,
@@ -2066,6 +2203,8 @@ window.submitOrder = async function () {
         pendingOrderAttempt = null;
         resetOrderFlowUI();
         renderOrderConfirmation(receipt);
+        const whatsappUrl = buildOrderWhatsAppUrl(receipt);
+        if (whatsappUrl) window.location.assign(whatsappUrl);
     } catch (error) {
         console.error('Checkout error:', error);
         showAlert('REVISÁ TU PEDIDO', error.message || 'Hubo un problema al procesar el pedido. Intentá nuevamente.');

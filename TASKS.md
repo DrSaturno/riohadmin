@@ -4,7 +4,7 @@
 
 **Metodologia:** Spec-Driven Development (SDD)
 
-**Ultima actualizacion:** 2026-08-12
+**Ultima actualizacion:** 2026-08-29
 
 ## Indice SDD
 
@@ -184,3 +184,85 @@ Todo cambio nuevo debe tener:
 - [ ] Confirmar stock inicial real de Cebolla Morada.
 - [ ] No crear pedidos de prueba despues del reinicio.
 - [ ] Supervisar el primer pedido real y confirmar el descuento de stock.
+
+## SDD-006 - Carrito, WhatsApp y comanda de cocina
+
+**Estado:** Hotfix implementado; pendiente de publicar el paquete.
+
+### Objetivo
+
+- Permitir quitar productos completos desde el carrito.
+- Volver a abrir WhatsApp automaticamente al confirmar el pedido.
+- Imprimir la comanda con la redaccion solicitada, tipografia de 50 px y sin comprimir horizontalmente el texto.
+- Posponer la seleccion de ingredientes incluidos hasta corregir la composicion de cada hamburguesa.
+
+### Criterios de aceptacion
+
+- [x] Cada producto del carrito ofrece una accion explicita `QUITAR ITEM`.
+- [x] El selector de ingredientes incluidos queda desactivado para evitar opciones incorrectas.
+- [x] Al terminar el pedido la pagina dirige al mensaje prearmado de WhatsApp.
+- [x] La comanda usa `NOM`, `HOR`, `DIR`, `PEDIDO`, `TOTAL` y `ALIAS`.
+- [x] La comanda abrevia el nombre de la hamburguesa y calcula SIMPLE, DOBLE, TRIPLE o CUADRUPLE.
+- [x] El ticket usa Font A doble en ESC/POS y texto de 50 px sin `scaleX` en navegador.
+- [x] Redefinir y validar los ingredientes removibles de cada hamburguesa antes de reactivar esa opcion (resuelto en SDD-007).
+
+### Impacto en datos, seguridad y despliegue
+
+- El hotfix del frontend no requiere cambios nuevos en Supabase.
+- La restriccion temporal de personalizacion queda reemplazada por la implementacion segura de SDD-007.
+
+### Verificacion realizada
+
+- [x] `node --check main.js`.
+- [x] `node --check admin.js`.
+- [x] Referencia visual del ticket aprobada.
+- [ ] Test de impresion confirmado en la ticketera fisica.
+
+## SDD-007 - Personalizacion, retiro programado y trazabilidad comercial
+
+**Estado:** Implementado y validado localmente; pendiente de ejecutar la migracion y publicar el frontend.
+
+### Objetivo
+
+- Permitir un unico medallon extra solamente en hamburguesas dobles.
+- Informar de forma inequivoca que todas las hamburguesas incluyen papas fritas.
+- Permitir quitar ingredientes validos de cada receta sin descontarlos del inventario.
+- Permitir elegir un horario cuando el pedido es para retirar por el local.
+- Identificar cupones, promociones y descuentos en pedidos, metricas, comprobantes y tickets.
+
+### Alcance y criterios de aceptacion
+
+- [x] El control de medallon extra esta bloqueado en SIMPLE y habilitado en DOBLE.
+- [x] Cada hamburguesa admite como maximo un medallon extra y el servidor vuelve a validar la regla.
+- [x] La inclusion de papas fritas se muestra en catalogo, detalle, carrito, checkout y comprobante.
+- [x] El detalle permite marcar ingredientes removibles derivados de la receta vigente.
+- [x] Pan, medallon y papas quedan excluidos de la lista de ingredientes removibles.
+- [x] Los ingredientes quitados viajan dentro del item, aparecen como `SIN:` y no se consumen del stock.
+- [x] La validacion, el descuento y la restauracion de stock usan un bloqueo transaccional compartido.
+- [x] RETIRO POR LOCAL muestra un selector obligatorio de horario con turnos de 15 minutos.
+- [x] El horario elegido se guarda en el pedido y aparece en la confirmacion y en WhatsApp.
+- [x] El checkout devuelve el tipo y nombre del beneficio aplicado.
+- [x] El panel resalta el cupon o promocion en kanban, detalle, ventas recientes y ticket.
+- [x] Pedidos y dashboard muestran cantidad de pedidos con beneficio, desglose entre cupones/promociones y monto total descontado.
+- [x] Una oferta con pedidos historicos se desactiva en lugar de eliminarse para preservar su trazabilidad.
+
+### Impacto en datos, seguridad y despliegue
+
+- Ejecutar primero `supabase_migracion_productos_integral.sql` y despues `supabase_seguridad_checkout.sql`.
+- Las RPC seguras vuelven a calcular precios, reglas de extras, ingredientes removibles y horarios del lado servidor.
+- Se agregan indices parciales para `pedidos.cupon_id` y `pedidos.promo_id`.
+- La publicacion del frontend debe realizarse despues de la migracion para no enviar campos que la RPC anterior desconoce.
+
+### Verificacion realizada
+
+- [x] `node --check main.js` y `node --check admin.js`.
+- [x] `git diff --check` sin errores.
+- [x] Parser PostgreSQL: 89 sentencias validas en seguridad y 107 en la migracion integral.
+- [x] Prueba real de navegador: SIMPLE bloquea el medallon, DOBLE habilita uno y volver a SIMPLE lo elimina.
+- [x] Prueba real de navegador: RETIRO POR LOCAL muestra turnos y cambia la etiqueta a HORARIO DE RETIRO.
+- [x] Prueba simulada sin escritura: comprobante y ticket muestran cupon, descuento e ingredientes quitados.
+- [x] Revision responsive en 375x812 y 812x375 sin desborde horizontal.
+- [ ] Ejecutar ambas migraciones en Supabase.
+- [ ] Publicar el frontend y purgar cache/CDN.
+- [ ] Confirmar un pedido de prueba y cancelarlo para comprobar descuento y restauracion de stock.
+- [ ] Confirmar la impresion en la ticketera fisica.
