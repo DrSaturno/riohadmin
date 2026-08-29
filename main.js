@@ -176,6 +176,25 @@ function isMedallionExtraName(value) {
     return normalizeSearchText(value).includes('medallon');
 }
 
+function isCustomerRemovableIngredientName(value) {
+    const normalized = normalizeSearchText(value);
+    return Boolean(normalized)
+        && !/(^|\s)pan(\s|$)|medallon|papa/.test(normalized);
+}
+
+function getPublicRemovableIngredients(product) {
+    const explicit = Array.isArray(product?.ingredientes_removibles)
+        ? product.ingredientes_removibles
+        : [];
+    const legacy = Array.isArray(product?.ingredientes_base)
+        ? product.ingredientes_base
+        : [];
+    const source = explicit.length ? explicit : legacy;
+    return [...new Set(source
+        .map(name => String(name || '').trim())
+        .filter(isCustomerRemovableIngredientName))];
+}
+
 function getExtraQuantityLimit(extraName) {
     return isMedallionExtraName(extraName) ? 1 : 2;
 }
@@ -456,9 +475,9 @@ async function loadMenu({ silent = false } = {}) {
                 desc: product.descripcion || '',
                 img: optimizedLocalImage(imgUrl),
                 destacado: Boolean(product.destacado),
-                removableIngredients: [...new Set((Array.isArray(product.ingredientes_removibles)
-                    ? product.ingredientes_removibles
-                    : []).map(name => String(name || '').trim()).filter(Boolean))],
+                // Compatibilidad con la RPC anterior: antes de la migracion el
+                // menu exponia `ingredientes_base` en lugar de la lista segura.
+                removableIngredients: getPublicRemovableIngredients(product),
                 directStock: Math.max(0, Math.floor(Number(product.max_simple) || 0)),
                 maxSimple: Math.max(0, Math.floor(Number(product.max_simple) || 0)),
                 maxDoble: Math.max(0, Math.floor(Number(product.max_doble) || 0)),
