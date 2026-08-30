@@ -484,7 +484,11 @@ async function loadMenu({ silent = false } = {}) {
             if (!rule) return;
             item.dataset.price = String(rule.price);
             const price = item.querySelector('.extra-item-copy span');
-            if (price) price.textContent = `+$${rule.price.toLocaleString('es-AR')} c/u`;
+            if (price) {
+                price.textContent = item.classList.contains('extra-item--triple')
+                    ? `$${rule.price.toLocaleString('es-AR', { useGrouping: false })} c/u`
+                    : `+$${rule.price.toLocaleString('es-AR')} c/u`;
+            }
         });
 
         menuData = rawProducts.map(product => {

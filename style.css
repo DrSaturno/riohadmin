@@ -1062,6 +1062,17 @@ body {
     color: #666;
 }
 
+.extra-item-copy .extra-item-name {
+    color: #222;
+    font-size: 0.73rem;
+    font-weight: 800;
+    line-height: 1.15;
+}
+
+.extra-item.is-locked .extra-item-name {
+    color: #666;
+}
+
 .extra-item-copy .extra-rule-note {
     color: var(--primary);
     font-size: 0.68rem;
