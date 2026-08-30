@@ -1,6 +1,18 @@
 // RIOH. ADMIN ENGINE
 
 // ── LOGIN SYSTEM ──
+const ADMIN_REQUEST_TIMEOUT_MS = 15000;
+
+function withAdminTimeout(operation, message = 'La conexión tardó demasiado. Intentá nuevamente.') {
+    let timeoutId;
+    const timeout = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(message)), ADMIN_REQUEST_TIMEOUT_MS);
+    });
+
+    return Promise.race([Promise.resolve(operation), timeout])
+        .finally(() => clearTimeout(timeoutId));
+}
+
 document.addEventListener('DOMContentLoaded', initializeAdminAuth);
 
 async function initializeAdminAuth() {
@@ -10,13 +22,20 @@ async function initializeAdminAuth() {
         return;
     }
 
-    client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    // El panel usa su propio almacenamiento de sesión para no competir por el
+    // lock de Auth con una pestaña abierta de la tienda pública.
+    client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+        auth: { storageKey: 'rioh-admin-auth-v1' }
+    });
     client.auth.onAuthStateChange(event => {
         if (event === 'SIGNED_OUT') showAdminLogin();
     });
 
     try {
-        const { data: { session }, error } = await client.auth.getSession();
+        const { data: { session }, error } = await withAdminTimeout(
+            client.auth.getSession(),
+            'La validación de la sesión tardó demasiado. Recargá e intentá nuevamente.'
+        );
         if (error) throw error;
         if (session?.user && await isAuthorizedAdmin(session.user.id)) {
             showAdminApp();
@@ -36,12 +55,15 @@ async function isAuthorizedAdmin(userId) {
 
     let lastError = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-        const { data, error } = await client
-            .from('admin_usuarios')
-            .select('user_id')
-            .eq('user_id', userId)
-            .eq('activo', true)
-            .maybeSingle();
+        const { data, error } = await withAdminTimeout(
+            client
+                .from('admin_usuarios')
+                .select('user_id')
+                .eq('user_id', userId)
+                .eq('activo', true)
+                .maybeSingle(),
+            'La verificación de permisos tardó demasiado.'
+        );
 
         if (!error) return Boolean(data);
 
@@ -74,7 +96,10 @@ window.doLogin = async function () {
     errorEl.textContent = '';
     if (button) { button.disabled = true; button.textContent = 'VALIDANDO...'; }
     try {
-        const { data, error } = await client.auth.signInWithPassword({ email, password: pass });
+        const { data, error } = await withAdminTimeout(
+            client.auth.signInWithPassword({ email, password: pass }),
+            'El ingreso tardó demasiado. Revisá tu conexión e intentá nuevamente.'
+        );
         if (error) throw error;
         if (!data.user || !await isAuthorizedAdmin(data.user.id)) {
             await client.auth.signOut();

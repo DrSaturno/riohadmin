@@ -41,9 +41,20 @@ setTimeout(dismissLoader, 1000);
 // 2. SUPABASE CONFIG
 const SUPABASE_URL = 'https://xjoyrjzvdfwavnvnfnvt.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhqb3lyanp2ZGZ3YXZudm5mbnZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NzIxMDYsImV4cCI6MjA4NjQ0ODEwNn0.Uw0MwDvBPtRjyMCt2ZA-kMYvVmIhUPXPP52AJo4a14Y';
+const SUPABASE_REQUEST_TIMEOUT_MS = 15000;
 let supabaseClient = null;
 let currentUser = null;
 let pendingAfterAuth = null;
+
+function withSupabaseTimeout(operation, message = 'La conexión tardó demasiado. Intentá nuevamente.') {
+    let timeoutId;
+    const timeout = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(message)), SUPABASE_REQUEST_TIMEOUT_MS);
+    });
+
+    return Promise.race([Promise.resolve(operation), timeout])
+        .finally(() => clearTimeout(timeoutId));
+}
 
 function initSupabase() {
     if (typeof window.supabase === 'undefined') {
@@ -437,7 +448,10 @@ async function loadMenu({ silent = false } = {}) {
     }
 
     try {
-        const { data, error } = await supabaseClient.rpc('listar_menu_publico');
+        const { data, error } = await withSupabaseTimeout(
+            supabaseClient.rpc('listar_menu_publico'),
+            'No pudimos actualizar el menú a tiempo. Revisá tu conexión e intentá nuevamente.'
+        );
         if (error) throw error;
 
         const rawProducts = Array.isArray(data?.products) ? data.products : [];
@@ -738,35 +752,64 @@ window.addExtraToCart = productId => {
 // AUTH ENGINE
 // =============================================
 async function initAuth() {
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (session) { currentUser = session.user; await onAuthSuccess(session.user, false); }
-
-    supabaseClient.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'PASSWORD_RECOVERY' && session) {
-            currentUser = session.user;
-            updateAuthUI(session.user);
-            openPasswordRecoveryPanel();
-        } else if (event === 'SIGNED_IN' && session) {
-            currentUser = session.user;
-            await onAuthSuccess(session.user, true);
-        } else if (event === 'SIGNED_OUT') {
-            currentUser = null;
-            updateAuthUI(null);
-        }
+    // Supabase mantiene un lock interno mientras ejecuta este callback. Cualquier
+    // otra llamada al cliente se difiere para evitar bloquear Auth y el resto de
+    // las consultas (menú, cotización y checkout).
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+        setTimeout(() => handleAuthStateChange(event, session), 0);
     });
+
+    try {
+        const { data: { session }, error } = await withSupabaseTimeout(
+            supabaseClient.auth.getSession(),
+            'No pudimos recuperar tu sesión a tiempo.'
+        );
+        if (error) throw error;
+        if (session) {
+            currentUser = session.user;
+            await onAuthSuccess(session.user, false);
+        }
+    } catch (error) {
+        console.error('Auth initialization error:', error);
+        currentUser = null;
+        updateAuthUI(null);
+    }
+}
+
+function handleAuthStateChange(event, session) {
+    if (event === 'PASSWORD_RECOVERY' && session) {
+        currentUser = session.user;
+        updateAuthUI(session.user);
+        openPasswordRecoveryPanel();
+    } else if (event === 'SIGNED_IN' && session) {
+        currentUser = session.user;
+        onAuthSuccess(session.user, true).catch(error => {
+            console.error('Auth post-login error:', error);
+        });
+    } else if (event === 'SIGNED_OUT') {
+        currentUser = null;
+        updateAuthUI(null);
+    }
 }
 
 async function onAuthSuccess(user, fromLogin) {
     updateAuthUI(user);
 
-    const { data: cliente, error } = await supabaseClient.rpc('sincronizar_cliente_actual', {
-        p_nombre: user.user_metadata?.nombre || null,
-        p_whatsapp: user.user_metadata?.whatsapp || null
-    });
-    if (error) {
+    try {
+        const { data: cliente, error } = await withSupabaseTimeout(
+            supabaseClient.rpc('sincronizar_cliente_actual', {
+                p_nombre: user.user_metadata?.nombre || null,
+                p_whatsapp: user.user_metadata?.whatsapp || null
+            }),
+            'No pudimos sincronizar tus datos a tiempo.'
+        );
+        if (error) {
+            console.error('Profile sync error:', error);
+        } else if (cliente) {
+            fillCheckoutProfile(cliente, false);
+        }
+    } catch (error) {
         console.error('Profile sync error:', error);
-    } else if (cliente) {
-        fillCheckoutProfile(cliente, false);
     }
 
     if (fromLogin) {
@@ -875,9 +918,19 @@ window.doLogin = async () => {
     if (!pass) { setAuthError('auth-error-login', 'Ingresá tu contraseña.'); return; }
     const btn = document.querySelector('#auth-panel-login .auth-submit-btn');
     btn.textContent = 'INGRESANDO...'; btn.disabled = true;
-    const { error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
-    btn.textContent = 'INGRESAR'; btn.disabled = false;
-    if (error) setAuthError('auth-error-login', translateAuthError(error));
+    try {
+        const { error } = await withSupabaseTimeout(
+            supabaseClient.auth.signInWithPassword({ email, password: pass }),
+            'El ingreso tardó demasiado. Revisá tu conexión e intentá nuevamente.'
+        );
+        if (error) setAuthError('auth-error-login', translateAuthError(error));
+    } catch (error) {
+        console.error('Login error:', error);
+        setAuthError('auth-error-login', error.message || 'No pudimos iniciar sesión.');
+    } finally {
+        btn.textContent = 'INGRESAR';
+        btn.disabled = false;
+    }
 };
 
 window.doRegister = async () => {
@@ -1983,18 +2036,9 @@ window.sendLastOrderWhatsApp = function() {
 
 window.openCheckoutModal = async function () {
     if (cart.length === 0) return;
-    const refreshed = await loadMenu({ silent: true });
-    if (!refreshed) {
-        showAlert('NO PUDIMOS VALIDAR EL STOCK', 'Revisá tu conexión e intentá continuar nuevamente.');
-        return;
-    }
-    const availability = validateCartAvailability(cart);
-    if (!availability.valid) {
-        showAlert('REVISÁ TU PEDIDO', availability.message);
-        renderCartItems();
-        return;
-    }
-    // Reset payment selection
+
+    // Abrimos el checkout de inmediato para que el click siempre tenga una
+    // respuesta visible mientras se revalida el stock con el servidor.
     selectedPayMethod = null;
     document.querySelectorAll('.pay-select-btn').forEach(b => b.classList.remove('active'));
     const aliasBox = document.getElementById('alias-box');
@@ -2009,6 +2053,24 @@ window.openCheckoutModal = async function () {
     modal.style.display = 'flex';
     setTimeout(() => modal.classList.add('active'), 10);
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    const refreshed = await loadMenu({ silent: true });
+    if (!refreshed) {
+        closeCheckoutModal();
+        showAlert('NO PUDIMOS VALIDAR EL STOCK', 'Revisá tu conexión e intentá continuar nuevamente.');
+        return;
+    }
+    const availability = validateCartAvailability(cart);
+    if (!availability.valid) {
+        closeCheckoutModal();
+        showAlert('REVISÁ TU PEDIDO', availability.message);
+        setTimeout(() => {
+            renderCartItems();
+            const cartModal = document.getElementById('cart-modal');
+            if (cartModal && !cartModal.classList.contains('active')) toggleCartModal();
+        }, 420);
+        return;
+    }
     await refreshSecureQuote({ showError: true });
 };
 
