@@ -226,6 +226,22 @@ function formatCartItemDetails(item) {
     ].filter(Boolean);
 }
 
+function checkoutItemDetailsHtml(item) {
+    const regularDetails = [
+        item?.type,
+        ...(item?.type ? ['Incluye papas fritas'] : []),
+        ...formatExtras(item?.extras)
+    ].filter(Boolean);
+    const removedDetails = formatRemovedIngredients(item?.removedIngredients);
+    const sections = [];
+
+    if (regularDetails.length) sections.push(escapeHtml(regularDetails.join(' · ')));
+    if (removedDetails.length) {
+        sections.push(`<strong class="checkout-removed-ingredients">${escapeHtml(removedDetails.join(' · '))}</strong>`);
+    }
+    return sections.join('<span class="checkout-detail-separator"> · </span>');
+}
+
 function readStoredJson(key) {
     try {
         const raw = localStorage.getItem(key);
@@ -2083,12 +2099,12 @@ window.updateCheckoutPrices = function (quote = null) {
     const itemsList = document.getElementById('checkout-items-list');
     if (itemsList) {
         itemsList.innerHTML = displayItems.map(item => {
-            const detail = formatCartItemDetails(item).join(' · ');
+            const detailHtml = checkoutItemDetailsHtml(item);
             return `
             <div class="checkout-item-row">
                 <div class="checkout-item-name">
                     <span class="checkout-item-qty">${item.qty}×</span>
-                    <span>${escapeHtml(item.title)}${detail ? `<br><small>${escapeHtml(detail)}</small>` : ''}</span>
+                    <span>${escapeHtml(item.title)}${detailHtml ? `<br><small>${detailHtml}</small>` : ''}</span>
                 </div>
                 <span class="checkout-item-price">$${Number(item.total || 0).toLocaleString('es-AR')}</span>
             </div>`;

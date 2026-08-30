@@ -505,6 +505,7 @@ window.testPrintQZ = function () {
                 { name: 'Medallón Extra', qty: 1, unitPrice: 1500 },
                 { name: 'Extra Bacon', qty: 1, unitPrice: 1500 }
             ],
+            removedIngredients: ['Queso Danbo'],
             pricePerUnit: 9999
         }],
         nota: 'Prueba de comanda'
@@ -2976,7 +2977,7 @@ window.filterCRMTable = function () {
 // 🖨️  TICKETERA — IMPRESIÓN DE TICKETS PARA IMPRESORA TÉRMICA
 // ══════════════════════════════════════════════════════════
 
-const APPROVED_TICKET_FORMAT_VERSION = '20260829.1';
+const APPROVED_TICKET_FORMAT_VERSION = '20260830.1';
 
 // Modelo único aprobado: lo consumen tanto QZ/ESC-POS como la impresión del navegador.
 function buildApprovedTicketLines(o) {
@@ -3001,7 +3002,13 @@ function buildApprovedTicketLines(o) {
             lines.push({ text: `+ ${formatOrderExtras(extraDetails)}`, detail: true });
         }
         const removedIngredients = formatOrderRemovedIngredients(item);
-        if (removedIngredients) lines.push({ text: `SIN: ${removedIngredients}`, detail: true });
+        if (removedIngredients) {
+            lines.push({
+                text: `SIN: ${removedIngredients}`,
+                detail: true,
+                alert: true
+            });
+        }
     }
 
     if (o.nota) lines.push({ gap: true }, { text: `OBS: ${o.nota}` });
@@ -3116,7 +3123,13 @@ function buildESCPOSTicket(o, metodoPagoOverride) {
 
     let t = INIT + LEFT + FONT_A + LARGE + BOLD_ON;
     for (const line of buildApprovedTicketLines(o)) {
-        t += line.gap ? '\n' : wrapLine(line.text);
+        if (line.gap) {
+            t += '\n';
+        } else if (line.alert) {
+            t += '\n' + wrapLine('*** ATENCION ***') + wrapLine(line.text) + wrapLine('****************') + '\n';
+        } else {
+            t += wrapLine(line.text);
+        }
     }
     t += BOLD_OFF + NORMAL + FONT_A + FEED + CUT;
 
@@ -3128,7 +3141,12 @@ function buildReceiptHTML(o, metodoPagoOverride) {
     const h = escapeAdminHtml;
     const ticketLinesHtml = buildApprovedTicketLines(o).map(line => {
         if (line.gap) return '<div class="ticket-gap" aria-hidden="true"></div>';
-        return `<div class="ticket-line${line.detail ? ' ticket-detail' : ''}">${h(String(line.text).toUpperCase())}</div>`;
+        const classes = [
+            'ticket-line',
+            line.detail ? 'ticket-detail' : '',
+            line.alert ? 'ticket-alert' : ''
+        ].filter(Boolean).join(' ');
+        return `<div class="${classes}">${h(String(line.text).toUpperCase())}</div>`;
     }).join('');
 
     return `<!DOCTYPE html>
@@ -3166,6 +3184,15 @@ function buildReceiptHTML(o, metodoPagoOverride) {
     overflow-wrap: break-word;
   }
   .ticket-detail { padding-left: 24px; }
+  .ticket-alert {
+    margin: 18px 0;
+    padding: 14px 12px;
+    border: 9px solid #000;
+    text-align: center;
+    text-decoration: underline;
+    font-size: 56px;
+    line-height: 1.08;
+  }
   .ticket-gap { height: 34px; }
 </style>
 </head>
